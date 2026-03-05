@@ -6,8 +6,8 @@ on:
       - "v*" # triggers only when pushing a tag like 'v1.0.0'
 
 permissions:
+  id-token: write # npm OIDC publish
   contents: read
-  packages: write # allows writing to npm (via token)
 
 jobs:
   publish:
@@ -29,6 +29,4 @@ jobs:
         run: npm run build
 
       - name: Publish to NPM
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
