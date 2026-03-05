@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "ESNext",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "lib": ["ESNext", "DOM", "DOM.AsyncIterable"],
+    "rewriteRelativeImportExtensions": false,
+    "noFallthroughCasesInSwitch": true,
+
+    // verbatimModuleSyntax - require "import" type-only specifier
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+
+    "exactOptionalPropertyTypes": true,
+
+    // require ".ts" extensions, and disable directory imports
+    "module": "node16",
+    "moduleResolution": "node16",
+
+    "declaration": true,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "examples"]
+}
