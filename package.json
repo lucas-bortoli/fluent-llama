@@ -1,6 +1,6 @@
 {
   "name": "@lucas-bortoli/fluent-llama",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Client library for interacting with llama.cpp servers",
   "repository": {
     "type": "git",

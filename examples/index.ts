@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as v from "valibot";
-import { Client } from "../src/client.ts";
-import { RandomSeed, Sampling } from "../src/sampling.ts";
-import { tool, Toolset } from "../src/tool.ts";
+import { Client } from "../dist/client.js";
+import { RandomSeed, Sampling } from "../dist/sampling.js";
+import { tool, Toolset } from "../dist/tool.js";
 import Logger from "./logger.ts";
 
 const logger = new Logger("Example");
@@ -64,7 +64,17 @@ export const jsEval = tool({
  */
 const imageData = await fs.readFile(path.join(import.meta.dirname, "./skyrim.jpg"));
 
-const client = await Client.from("http://localhost:9001");
+const clientResult = await Client.from("http://localhost:9001");
+
+if (clientResult.isErr()) {
+  logger.error("Failed to create client:", clientResult.error);
+  process.exit(1);
+}
+
+const client = clientResult.value;
+
+logger.info("Client info:", client);
+
 const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
 
 if (llmResult.isErr()) {

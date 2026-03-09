@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/@lucas-bortoli/fluent-llama)](https://www.npmjs.com/package/@lucas-bortoli/fluent-llama)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.npmjs.com/)
 
 > This package is currently in **Alpha status**. It is not yet suitable for production use. Breaking changes may occur without notice.
 
@@ -17,6 +17,7 @@
 - **Reasoning** 🔍: Supports `reasoningContent` (Chain of Thought) streams.
 - **Advanced Sampling** ⚙️: Fine-grained control over temperature, top-k, top-p, mirostat, DRY, XTC, and more.
 - **Streaming** 🔄: Full SSE (Server-Sent Events) support for real-time token streaming.
+- **Router Mode** 🛰️: Dynamic model loading/unloading with automatic model discovery.
 
 ## Prerequisites
 
@@ -39,11 +40,20 @@ import { RandomSeed, Sampling } from "@lucas-bortoli/fluent-llama";
 
 async function main() {
   // Connect to your local llama-server
-  const client = await Client.from("http://localhost:8080");
+  const clientResult = await Client.from("http://localhost:8080");
+
+  if (clientResult.isErr()) {
+    console.error("Failed to create client:", clientResult.error);
+    process.exit(1);
+  }
+
+  const client = clientResult.value;
+  console.log("Client initialized with models:", [...client.availableModels.keys()]);
+
   const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
 
   if (llmResult.isErr()) {
-    console.error("Error opening client:", llmResult.error);
+    console.error("Error creating text model:", llmResult.error);
     process.exit(1);
   }
 
@@ -59,7 +69,7 @@ async function main() {
     console.log(result.value.response.content);
   } else {
     // Always handle errors explicitly with neverthrow patterns
-    console.error(result.error);
+    console.error("Response error:", result.error);
   }
 }
 
@@ -84,11 +94,19 @@ const weatherTool = tool({
   },
 });
 
-const client = await Client.from("http://localhost:8080");
+const clientResult = await Client.from("http://localhost:8080");
+
+if (clientResult.isErr()) {
+  console.error("Failed to create client:", clientResult.error);
+  process.exit(1);
+}
+
+const client = clientResult.value;
+
 const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
 
 if (llmResult.isErr()) {
-  console.error("Error opening client:", llmResult.error);
+  console.error("Error creating text model:", llmResult.error);
   process.exit(1);
 }
 
@@ -112,7 +130,7 @@ if (response.isOk()) {
   console.log(response.value);
 } else {
   // Handle errors explicitly
-  console.error(response.error);
+  console.error("Agent response error:", response.error);
 }
 ```
 
@@ -123,21 +141,120 @@ You can send images by attaching binary content to user messages.
 ```typescript
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Client, Sampling } from "@lucas-bortoli/fluent-llama";
 
-// ...obtain a TextModel instance like before...
+async function main() {
+  const clientResult = await Client.from("http://localhost:8080");
 
-const imageData = await fs.readFile(path.join(__dirname, "image.jpg"));
-const response = await llm.respond({
-  instructions: "Describe this image.",
-  history: [
-    {
-      role: "user",
-      content: "What is in this picture?",
-      attachments: [{ mimeType: "image/jpeg", content: imageData.buffer }],
-    },
-  ],
-  sampling: new Sampling().build(),
-});
+  if (clientResult.isErr()) {
+    console.error("Failed to create client:", clientResult.error);
+    process.exit(1);
+  }
+
+  const client = clientResult.value;
+  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
+
+  if (llmResult.isErr()) {
+    console.error("Error creating text model:", llmResult.error);
+    process.exit(1);
+  }
+
+  const llm = llmResult.value;
+
+  const imageData = await fs.readFile(path.join(__dirname, "image.jpg"));
+  const response = await llm.respond({
+    instructions: "Describe this image.",
+    history: [
+      {
+        role: "user",
+        content: "What is in this picture?",
+        attachments: [{ mimeType: "image/jpeg", content: imageData.buffer }],
+      },
+    ],
+    sampling: new Sampling().build(),
+  });
+
+  if (response.isOk()) {
+    console.log(response.value.response.content);
+  } else {
+    console.error("Vision response error:", response.error);
+  }
+}
+
+main();
+```
+
+### 4. Model Loading and Unloading (Router Mode)
+
+With llama-server's router mode, you can dynamically load and unload models without restarting the server.
+
+```typescript
+import { Client } from "@lucas-bortoli/fluent-llama";
+
+async function main() {
+  const clientResult = await Client.from("http://localhost:8080");
+
+  if (clientResult.isErr()) {
+    console.error("Failed to create client:", clientResult.error);
+    process.exit(1);
+  }
+
+  const client = clientResult.value;
+
+  // Check available models
+  console.log("Available models:", [...client.availableModels.keys()]);
+
+  // Load a model
+  const loadResult = await client.load("Qwen3.5-35B-A3B");
+  if (loadResult.isErr()) {
+    console.error("Failed to load model:", loadResult.error);
+  } else {
+    console.log("Model loaded successfully");
+  }
+
+  // Check if model is loaded
+  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
+  if (llmResult.isOk()) {
+    const llm = llmResult.value;
+    const isLoaded = await llm.isLoaded();
+    console.log("Model loaded status:", isLoaded.value);
+
+    // ... use the model ...
+  }
+
+  // Unload the model when done
+  const unloadResult = await client.unload("Qwen3.5-35B-A3B");
+  if (unloadResult.isErr()) {
+    console.error("Failed to unload model:", unloadResult.error);
+  } else {
+    console.log("Model unloaded successfully");
+  }
+}
+
+main();
+```
+
+### 5. Refresh Model Cache
+
+If models are added to the server while running, refresh the client's model cache:
+
+```typescript
+const clientResult = await Client.from("http://localhost:8080");
+
+if (clientResult.isErr()) {
+  console.error("Failed to create client:", clientResult.error);
+  process.exit(1);
+}
+
+const client = clientResult.value;
+
+// Refresh the model cache
+const refreshResult = await client.refreshModels();
+if (refreshResult.isOk()) {
+  console.log("Model cache refreshed:", [...client.availableModels.keys()]);
+} else {
+  console.error("Failed to refresh models:", refreshResult.error);
+}
 ```
 
 ## Error Handling with Neverthrow
@@ -185,6 +302,18 @@ if (response.isErr()) {
       break;
     case "InvalidParameter":
       console.error("Invalid parameters provided:", error.details);
+      break;
+    case "InvalidModel":
+      console.error("Invalid model specified:", {
+        modelId: error.modelId,
+        details: error.details,
+      });
+      break;
+    case "ModelLoadError":
+      console.error("Model failed to load:", error.details);
+      break;
+    case "ModelUnloadError":
+      console.error("Model failed to unload:", error.details);
       break;
   }
 }

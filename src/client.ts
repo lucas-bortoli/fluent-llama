@@ -7,6 +7,9 @@ import {
   type ApiChatCompletionOptions,
   type ApiChatCompletionStreamChunk,
   type ApiCompletionStreamChunk,
+  type ApiModelEntry,
+  type ApiModelLoadUnloadResponse,
+  type ApiModelsResponse,
   type ApiPropsResponse,
   type ApiRequestError,
   type ApiTimingMetrics,
@@ -546,13 +549,141 @@ export class TextModel {
 }
 
 /**
+ * Represents an error caused when loading a model fails.
+ */
+export interface ModelLoadError {
+  kind: "ModelLoadError";
+  /** Description of the loading failure. */
+  details: string;
+}
+
+/**
+ * Represents an error caused when unloading a model fails.
+ */
+export interface ModelUnloadError {
+  kind: "ModelUnloadError";
+  /** Description of the unloading failure. */
+  details: string;
+}
+
+/**
+ * Represents an error caused when a model ID is invalid or not available.
+ */
+export interface InvalidModelError {
+  kind: "InvalidModel";
+  /** The invalid model ID that was provided. */
+  modelId: string;
+  /** Explanation of why the model is invalid. */
+  details: string;
+}
+
+/**
  * Represents the HTTP Client connecting to the inference API server.
  */
 export class Client {
   public readonly BASE_URL: URL;
 
-  private constructor(baseUrl: string | URL) {
+  /** Cached list of available models from the router. */
+  public readonly availableModels: Map<string, ApiModelEntry>;
+
+  private constructor(baseUrl: string | URL, availableModels: Map<string, ApiModelEntry>) {
     this.BASE_URL = new URL(baseUrl);
+    this.availableModels = availableModels;
+  }
+
+  /**
+   * Loads a model into the inference router.
+   * @param id The model identifier to load.
+   * @returns A Result containing success status or error.
+   */
+  public async load(id: string): Promise<Result<void, ModelLoadError | ApiRequestError>> {
+    const result = await requestJson<ApiModelLoadUnloadResponse>({
+      baseUrl: this.BASE_URL,
+      method: "POST",
+      pathName: "/models/load",
+      body: { model: id },
+      transformBody: (body) => objectToCamelCase(body, true),
+    });
+
+    if (result.isErr()) {
+      return err(result.error);
+    }
+
+    if (!result.value.success) {
+      return err({
+        kind: "ModelLoadError",
+        details: "Model load request returned non-success response",
+      });
+    }
+
+    return ok();
+  }
+
+  /**
+   * Unloads a model from the inference router.
+   * @param id The model identifier to unload.
+   * @returns A Result containing success status or error.
+   */
+  public async unload(id: string): Promise<Result<void, ModelUnloadError | ApiRequestError>> {
+    const result = await requestJson<ApiModelLoadUnloadResponse>({
+      baseUrl: this.BASE_URL,
+      method: "POST",
+      pathName: "/models/unload",
+      body: { model: id },
+      transformBody: (body) => objectToCamelCase(body, true),
+    });
+
+    if (result.isErr()) {
+      return err(result.error);
+    }
+
+    if (!result.value.success) {
+      return err({
+        kind: "ModelUnloadError",
+        details: "Model unload request returned non-success response",
+      });
+    }
+
+    return ok(undefined);
+  }
+
+  /**
+   * Checks if this model is currently loaded in the router.
+   * @returns A Result containing true if loaded, false if unloaded, or an error.
+   */
+  public async isModelLoaded(
+    id: string,
+  ): Promise<Result<boolean, ApiRequestError | ModelLoadError>> {
+    const result = await requestJson<ApiModelsResponse>({
+      baseUrl: this.BASE_URL,
+      method: "GET",
+      pathName: "/models",
+      transformBody: (body) => objectToCamelCase(body, true),
+    });
+
+    if (result.isErr()) {
+      return err(result.error);
+    }
+
+    const modelEntry = result.value.data.find((entry) => entry.id === id);
+
+    if (!modelEntry) {
+      return err({
+        kind: "ModelLoadError",
+        details: `Model "${id}" not found in router`,
+      });
+    }
+
+    if (!modelEntry.status) {
+      return err({
+        kind: "ModelLoadError",
+        details: `Model "${id}" has no status information`,
+      });
+    }
+
+    const isLoaded = modelEntry.status.value === "loaded";
+
+    return ok(isLoaded);
   }
 
   /**
@@ -561,15 +692,38 @@ export class Client {
    * @returns A promise resolving to a `Result` containing the `TextModel`.
    */
   public async createTextModel(id: string) {
+    // Validate model exists in cache
+    if (!this.availableModels.has(id)) {
+      return err({
+        kind: "InvalidModel",
+        modelId: id,
+        details: `Model "${id}" is not available in the router. Available models: ${[...this.availableModels.keys()].join(", ")}`,
+      });
+    }
+
     return TextModel.from(this, id);
   }
 
   /**
    * Static factory method to create a Client instance.
+   * Queries the /models endpoint to cache available models.
    * @param baseUrl The base URL of the inference server.
-   * @returns A new Client instance.
+   * @returns A promise resolving to a Result containing the Client or an error.
    */
-  public static async from(baseUrl: string) {
-    return new Client(baseUrl);
+  public static async from(baseUrl: string): Promise<Result<Client, ApiRequestError>> {
+    const result = await requestJson<ApiModelsResponse>({
+      baseUrl: new URL(baseUrl),
+      method: "GET",
+      pathName: "/models",
+    });
+
+    if (result.isErr()) {
+      return err(result.error);
+    }
+
+    const models = new Map(result.value.data.map((entry) => [entry.id, entry]));
+    const client = new Client(baseUrl, models);
+
+    return ok(client);
   }
 }

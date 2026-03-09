@@ -2,6 +2,48 @@ import { err, ok, type Result } from "neverthrow";
 import { apiStreamChunker } from "./streamChunker.js";
 
 /**
+ * Represents a model's status in the router.
+ */
+export interface ApiModelStatus {
+  value: "loaded" | "unloading" | "loading" | "unloaded" | "failed";
+  args?: string[];
+  failed?: boolean;
+  exitCode?: number;
+}
+
+/**
+ * Represents a model entry from the /models endpoint.
+ */
+export interface ApiModelEntry {
+  id: string;
+  inCache: boolean;
+  path?: string;
+  status?: ApiModelStatus;
+  loaded?: boolean;
+}
+
+/**
+ * Response from GET /models endpoint.
+ */
+export interface ApiModelsResponse {
+  data: ApiModelEntry[];
+}
+
+/**
+ * Request for model load/unload operations.
+ */
+export interface ApiModelLoadUnloadRequest {
+  model: string;
+}
+
+/**
+ * Response for model load/unload operations.
+ */
+export interface ApiModelLoadUnloadResponse {
+  success: boolean;
+}
+
+/**
  * Return value of llama-server's `GET /props` endpoint (build b8157-2943210c1).
  */
 export interface ApiPropsResponse {
