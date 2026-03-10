@@ -265,7 +265,7 @@ export async function requestJson<J extends object>(options: {
   transformBody?: (input: object) => object;
 }): Promise<Result<J, ApiRequestError>> {
   const requestUrl = new URL(options.baseUrl);
-  requestUrl.pathname = options.pathName;
+  requestUrl.pathname += options.pathName;
 
   const response = await fetch(requestUrl, {
     method: options.method,
@@ -307,7 +307,7 @@ export async function requestStream<C extends object>(options: {
   signal: AbortSignal | undefined | null;
 }): Promise<Result<AsyncGenerator<C, void, unknown>, ApiRequestError>> {
   const requestUrl = new URL(options.baseUrl);
-  requestUrl.pathname = options.pathName;
+  requestUrl.pathname += options.pathName;
 
   const response = await fetch(requestUrl, {
     method: options.method,
