@@ -15,6 +15,7 @@
 - **Error Handling with supermacro's neverthrow** 🛡️: All operations return `Result<T, E>` types from the [`neverthrow`](https://github.com/supermacro/neverthrow) library. Handle errors explicitly with TypeScript support. Highly recommend checking it out.
 - **Vision Support** 📷: Native handling of image attachments via Base64.
 - **Reasoning** 🔍: Supports `reasoningContent` (Chain of Thought) streams.
+- **Text Infilling** 📃: Native support for fill-in-the-middle text completion tasks.
 - **Advanced Sampling** ⚙️: Fine-grained control over temperature, top-k, top-p, mirostat, DRY, XTC, and more.
 - **Streaming** 🔄: Full SSE (Server-Sent Events) support for real-time token streaming.
 - **Router Mode** 🛰️: Dynamic model loading/unloading with automatic model discovery.
@@ -234,27 +235,48 @@ async function main() {
 main();
 ```
 
-### 5. Refresh Model Cache
+### 5. Text Infilling
 
-If models are added to the server while running, refresh the client's model cache:
+The `predict()` method supports text infilling by using the native `/infill` endpoint. Provide a `prefix`, `suffix`, and the main `prompt` to generate completions for partial text blocks.
 
 ```typescript
-const clientResult = await Client.from("http://localhost:8080");
+import { Client, Sampling, RandomSeed } from "@lucas-bortoli/fluent-llama";
 
-if (clientResult.isErr()) {
-  console.error("Failed to create client:", clientResult.error);
-  process.exit(1);
+async function main() {
+  const clientResult = await Client.from("http://localhost:8080");
+
+  if (clientResult.isErr()) {
+    console.error("Failed to create client:", clientResult.error);
+    process.exit(1);
+  }
+
+  const client = clientResult.value;
+  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
+
+  if (llmResult.isErr()) {
+    console.error("Error creating text model:", llmResult.error);
+    process.exit(1);
+  }
+
+  const llm = llmResult.value;
+
+  const result = await llm.predict({
+    input: {
+      prefix: "def sum(a, b):\n",
+      suffix: "\n\nprint(sum(5, 8))",
+      prompt: "Write this function.",
+    },
+    sampling: new Sampling().setSamplerTemperature(0.6).setSeed(RandomSeed).build(),
+  });
+
+  if (result.isOk()) {
+    console.log("Infilling completion:", result.value.content);
+  } else {
+    console.error("Infilling error:", result.error);
+  }
 }
 
-const client = clientResult.value;
-
-// Refresh the model cache
-const refreshResult = await client.refreshModels();
-if (refreshResult.isOk()) {
-  console.log("Model cache refreshed:", [...client.availableModels.keys()]);
-} else {
-  console.error("Failed to refresh models:", refreshResult.error);
-}
+main();
 ```
 
 ## Error Handling with Neverthrow
@@ -350,7 +372,7 @@ const tools = new Toolset([weatherTool, webSearchTool])
 
 ## Compatibility
 
-This package is built specifically for the API interface exposed by `llama-server` (llama.cpp). Some endpoints use the OpenAI compat layer, but this package is **specifically geared towards llama-server's API. Do not use this package with other OpenAI-compatible servers**.
+This package is built specifically for the API interface exposed by llama-server (llama.cpp). While some endpoints use the OpenAI compat layer, this package **specifically leverages llama-server's native endpoints** for optimal performance and feature support. Do not use this package with other LLM servers.
 
 ## Disclaimer
 

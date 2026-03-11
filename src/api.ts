@@ -182,19 +182,30 @@ export interface ApiCompletionOptions extends ApiBaseCompletionOptions {
   prompt: string;
 }
 
+/**
+ * Represents a stream chunk from llama-server's native `/completion` and `/infill` endpoints.
+ *
+ * These endpoints differ from the OpenAI-compatible `/v1/completions` format.
+ * This interface matches the response format of llama-server (llama.cpp) b8157.
+ */
 export interface ApiCompletionStreamChunk {
-  id: string;
-  object: "text_completion";
-  systemFingerprint: string;
-  model: string;
-  created: number;
-  choices: {
-    text: string;
-    index: number;
-    logprobs: null;
-    finishReason: "stop" | "length" | "content_filter" | null;
-  }[];
-  usage?: ApiUsageMetrics;
+  index: number;
+  content: string;
+  tokens: number[];
+  stop: boolean;
+  idSlot: number;
+  tokensPredicted: number;
+  tokensEvaluated: number;
+
+  // fields only present in the final chunk
+  model?: string;
+  generationSettings?: {};
+  prompt?: string;
+  hasNewLine?: boolean;
+  truncated?: boolean;
+  stopType?: "none" | "eos" | "limit" | "word";
+  stoppingWord?: string;
+  tokensCached?: number;
   timings?: ApiTimingMetrics;
 }
 
@@ -250,6 +261,23 @@ export interface ApiRequestError {
 }
 
 /**
+ * Normalizes URL paths by combining a base URL with a path name.
+ *
+ * Ensures that trailing slashes from the base and leading slashes from the path
+ * are handled correctly to avoid malformed URLs (e.g., "base//path").
+ * @param baseUrl The base URL object.
+ * @param pathName The path string to append.
+ * @returns A new URL with the combined and normalized path.
+ */
+const combinePathNames = (baseUrl: URL, pathName: string): URL => {
+  const base = baseUrl.pathname.replace(/\/$/, "");
+  const path = pathName.replace(/^\/+/, "");
+  const newUrl = new URL(baseUrl);
+  newUrl.pathname = `${base}/${path}`;
+  return newUrl;
+};
+
+/**
  * Performs a JSON-based API request (GET or POST).
  *
  * Handles response parsing and error mapping to `ApiRequestError`.
@@ -264,8 +292,7 @@ export async function requestJson<J extends object>(options: {
   signal?: AbortSignal | undefined | null;
   transformBody?: (input: object) => object;
 }): Promise<Result<J, ApiRequestError>> {
-  const requestUrl = new URL(options.baseUrl);
-  requestUrl.pathname += options.pathName;
+  const requestUrl = combinePathNames(options.baseUrl, options.pathName);
 
   const response = await fetch(requestUrl, {
     method: options.method,
@@ -306,8 +333,7 @@ export async function requestStream<C extends object>(options: {
   body: object;
   signal: AbortSignal | undefined | null;
 }): Promise<Result<AsyncGenerator<C, void, unknown>, ApiRequestError>> {
-  const requestUrl = new URL(options.baseUrl);
-  requestUrl.pathname += options.pathName;
+  const requestUrl = combinePathNames(options.baseUrl, options.pathName);
 
   const response = await fetch(requestUrl, {
     method: options.method,

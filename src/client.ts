@@ -84,7 +84,6 @@ export type ChatCompletionError =
 export type CompletionCallbackEvent = {
   kind: "Token";
   fragment: string;
-  timings?: ApiTimingMetrics;
 };
 
 /**
@@ -146,8 +145,7 @@ async function executeTool(
 export interface PredictResult {
   content: string;
   timings: ApiTimingMetrics;
-  usage: any;
-  finishReason: string;
+  finishReason: "Word" | "Stop" | "Length";
 }
 
 /**
@@ -235,11 +233,19 @@ export class TextModel {
    * Generates a text completion stream for a single prompt.
    *
    * Suitable for tasks that do not require conversation history (e.g., completion, translation).
+   * Also supports code infilling when the input is an object with prefix/suffix.
    * @param options Configuration for the prediction including prompt, sampling settings, and callbacks.
    * @returns A `Result` containing the completion output and metrics, or a `CompletionError`.
    */
   public async predict(options: {
-    input: string;
+    input:
+      | string
+      | {
+          prefix: string;
+          suffix: string;
+          extra?: string;
+          prompt: string;
+        };
     sampling: SamplingResult;
     maxTokens?: number;
     signal?: AbortSignal;
@@ -248,16 +254,24 @@ export class TextModel {
     try {
       const body = objectToSnakeCase({
         ...options.sampling,
-        prompt: options.input,
+        ...(typeof options.input === "string"
+          ? { prompt: options.input }
+          : {
+              inputPrefix: options.input.prefix,
+              inputSuffix: options.input.suffix,
+              inputExtra: options.input.extra,
+              prompt: options.input.prompt,
+            }),
         maxTokens: options.maxTokens === Infinity ? -1 : (options.maxTokens ?? 64),
         model: this.id,
         stream: true,
-      }) satisfies ApiChatCompletionOptions;
+      });
 
       const requestResult = await requestStream<ApiCompletionStreamChunk>({
         baseUrl: this.client.BASE_URL,
         method: "POST",
-        pathName: "/v1/completions",
+        // select native endpoint: /completion for standard text, /infill for infilling
+        pathName: typeof options.input === "string" ? "/completion" : "/infill",
         body,
         signal: options.signal,
       });
@@ -269,25 +283,28 @@ export class TextModel {
       let content = "";
 
       for await (const chunk of requestResult.value) {
-        const data = chunk.choices[0]!;
+        options.onEvent?.({
+          kind: "Token",
+          fragment: chunk.content,
+        });
 
-        if (data.text !== undefined) {
-          // got completion fragment
-          content += data.text;
-          options.onEvent?.({
-            kind: "Token",
-            fragment: data.text,
-            timings: chunk.timings!,
-          });
-        }
+        content += chunk.content;
 
-        if (data.finishReason !== null) {
-          // finished generation
+        if (chunk.stop) {
+          let finishReason: PredictResult["finishReason"];
+
+          if (chunk.stopType === "word") {
+            finishReason = "Word";
+          } else if (chunk.stopType === "limit") {
+            finishReason = "Length";
+          } else if (chunk.stopType === "eos") {
+            finishReason = "Stop";
+          }
+
           return ok({
-            content: content,
+            content,
             timings: chunk.timings!,
-            usage: chunk.usage!,
-            finishReason: data.finishReason!,
+            finishReason: finishReason!,
           });
         }
       }

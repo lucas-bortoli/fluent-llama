@@ -137,7 +137,7 @@ export type BanToken = typeof BanToken;
 
 export type Grammar = { type: "Json"; schema: object } | { type: "Gbnf"; grammar: string };
 
-export  class Sampling {
+export class Sampling {
   private static readonly defaultConfig: SamplingState = {
     temperature: { value: 0.8 },
     top_k: { value: 40 },
@@ -376,7 +376,7 @@ export  class Sampling {
       mirostat_tau: state.mirostat?.ent ?? 5.0,
       mirostat_eta: state.mirostat?.lr ?? 0.1,
       // sampler order
-      samplers: this.order.join(";"),
+      samplers: this.order,
       logit_bias: Object.fromEntries(
         this.bias.entries().map(([token, bias]) => {
           return [token, bias === BanToken ? false : bias];
@@ -430,7 +430,7 @@ export type SamplingResult = {
   readonly mirostat: number;
   readonly mirostat_tau: number;
   readonly mirostat_eta: number;
-  readonly samplers: string;
+  readonly samplers: ReadonlyArray<string>;
   readonly logit_bias: { readonly [token: number]: number | false };
 
   // these are mutually exclusive
