@@ -285,6 +285,7 @@ const combinePathNames = (baseUrl: URL, pathName: string): URL => {
  * @returns A `Result` containing the parsed JSON or an `ApiRequestError`.
  */
 export async function requestJson<J extends object>(options: {
+  fetchFn: typeof fetch;
   baseUrl: URL;
   method: "GET" | "POST";
   pathName: string;
@@ -294,7 +295,7 @@ export async function requestJson<J extends object>(options: {
 }): Promise<Result<J, ApiRequestError>> {
   const requestUrl = combinePathNames(options.baseUrl, options.pathName);
 
-  const response = await fetch(requestUrl, {
+  const response = await options.fetchFn(requestUrl, {
     method: options.method,
     headers: { "Content-Type": "application/json" },
     signal: options.signal ?? null,
@@ -327,6 +328,7 @@ export async function requestJson<J extends object>(options: {
  * @returns A `Result` containing the async generator stream or an `ApiRequestError`.
  */
 export async function requestStream<C extends object>(options: {
+  fetchFn: typeof fetch;
   baseUrl: URL;
   method: "GET" | "POST";
   pathName: string;
@@ -335,7 +337,7 @@ export async function requestStream<C extends object>(options: {
 }): Promise<Result<AsyncGenerator<C, void, unknown>, ApiRequestError>> {
   const requestUrl = combinePathNames(options.baseUrl, options.pathName);
 
-  const response = await fetch(requestUrl, {
+  const response = await options.fetchFn(requestUrl, {
     method: options.method,
     headers: { "Content-Type": "application/json" },
     signal: options.signal ?? null,

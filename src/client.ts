@@ -193,6 +193,7 @@ export class TextModel {
     urlWithModel.searchParams.set("model", id);
 
     const queryResult = await requestJson<ApiPropsResponse>({
+      fetchFn: client.clientOptions.fetchFn,
       baseUrl: urlWithModel,
       method: "GET",
       pathName: "/props",
@@ -268,6 +269,7 @@ export class TextModel {
       });
 
       const requestResult = await requestStream<ApiCompletionStreamChunk>({
+        fetchFn: this.client.clientOptions.fetchFn,
         baseUrl: this.client.BASE_URL,
         method: "POST",
         // select native endpoint: /completion for standard text, /infill for infilling
@@ -384,6 +386,7 @@ export class TextModel {
       }) satisfies ApiChatCompletionOptions;
 
       const requestResult = await requestStream<ApiChatCompletionStreamChunk>({
+        fetchFn: this.client.clientOptions.fetchFn,
         baseUrl: this.client.BASE_URL,
         method: "POST",
         pathName: "/v1/chat/completions",
@@ -566,6 +569,27 @@ export class TextModel {
 }
 
 /**
+ * Configuration options for creating a Client instance.
+ */
+export interface ClientOptions {
+  /**
+   * Optional custom fetch function.
+   *
+   * Use this to inject a custom HTTP client (e.g., for testing, logging,
+   * or polyfilling fetch in different environments). Defaults to the global
+   * `fetch` function if not provided.
+   *
+   * @example
+   * ```typescript
+   * const client = await Client.from("http://localhost:8080", {
+   *   fetchFn: myCustomFetch,
+   * });
+   * ```
+   */
+  fetchFn: typeof fetch;
+}
+
+/**
  * Represents an error caused when loading a model fails.
  */
 export interface ModelLoadError {
@@ -603,9 +627,17 @@ export class Client {
   /** Cached list of available models from the router. */
   public readonly availableModels: Map<string, ApiModelEntry>;
 
-  private constructor(baseUrl: string | URL, availableModels: Map<string, ApiModelEntry>) {
-    this.BASE_URL = new URL(baseUrl);
+  /** Configuration options for this Client instance. */
+  public readonly clientOptions: ClientOptions;
+
+  private constructor(
+    baseUrl: URL,
+    availableModels: Map<string, ApiModelEntry>,
+    clientOptions: ClientOptions,
+  ) {
+    this.BASE_URL = baseUrl;
     this.availableModels = availableModels;
+    this.clientOptions = clientOptions;
   }
 
   /**
@@ -615,6 +647,7 @@ export class Client {
    */
   public async load(id: string): Promise<Result<void, ModelLoadError | ApiRequestError>> {
     const result = await requestJson<ApiModelLoadUnloadResponse>({
+      fetchFn: this.clientOptions.fetchFn,
       baseUrl: this.BASE_URL,
       method: "POST",
       pathName: "/models/load",
@@ -643,6 +676,7 @@ export class Client {
    */
   public async unload(id: string): Promise<Result<void, ModelUnloadError | ApiRequestError>> {
     const result = await requestJson<ApiModelLoadUnloadResponse>({
+      fetchFn: this.clientOptions.fetchFn,
       baseUrl: this.BASE_URL,
       method: "POST",
       pathName: "/models/unload",
@@ -672,6 +706,7 @@ export class Client {
     id: string,
   ): Promise<Result<boolean, ApiRequestError | ModelLoadError>> {
     const result = await requestJson<ApiModelsResponse>({
+      fetchFn: this.clientOptions.fetchFn,
       baseUrl: this.BASE_URL,
       method: "GET",
       pathName: "/models",
@@ -725,10 +760,22 @@ export class Client {
    * Static factory method to create a Client instance.
    * Queries the /models endpoint to cache available models.
    * @param baseUrl The base URL of the inference server.
+   * @param options Optional configuration options.
    * @returns A promise resolving to a Result containing the Client or an error.
    */
-  public static async from(baseUrl: string): Promise<Result<Client, ApiRequestError>> {
+  public static async from(
+    baseUrl: string | URL,
+    options?: Partial<ClientOptions>,
+  ): Promise<Result<Client, ApiRequestError>> {
+    const clientOptions: ClientOptions = {
+      fetchFn: globalThis["fetch"],
+      ...options,
+    };
+
+    baseUrl = new URL(baseUrl);
+
     const result = await requestJson<ApiModelsResponse>({
+      fetchFn: clientOptions.fetchFn,
       baseUrl: new URL(baseUrl),
       method: "GET",
       pathName: "/models",
@@ -739,7 +786,7 @@ export class Client {
     }
 
     const models = new Map(result.value.data.map((entry) => [entry.id, entry]));
-    const client = new Client(baseUrl, models);
+    const client = new Client(baseUrl, models, clientOptions);
 
     return ok(client);
   }
