@@ -829,6 +829,19 @@ export class Client {
     });
 
     if (result.isErr()) {
+      const innerError = result.error;
+      if (
+        innerError.kind === "RequestError" &&
+        innerError.httpStatusCode === 400 &&
+        innerError.responseBody?.includes("model is not loaded")
+      ) {
+        this.modelStatuses.set(id, {
+          id,
+          status: "unloaded",
+          inCache: false,
+        });
+        return ok();
+      }
       return err({
         kind: "ModelUnloadError",
         details: "Model unload request returned non-success response",
