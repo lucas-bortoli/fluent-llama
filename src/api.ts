@@ -143,6 +143,29 @@ export interface ApiUsageMetrics {
   totalTokens: number;
 }
 
+/**
+ * Multimodal data for embedding requests.
+ */
+export interface ApiMultimodalEmbeddingInput {
+  prompt: string;
+  multimodalData: string[]; // base64-encoded images
+}
+
+/**
+ * Request body for llama.cpp's native /embedding endpoint.
+ */
+export interface ApiEmbeddingRequest {
+  content: string | ApiMultimodalEmbeddingInput;
+}
+
+/**
+ * Response from llama.cpp's /embedding endpoint.
+ */
+export type ApiEmbeddingResponse = Array<{
+  index: number;
+  embedding: number[];
+}>;
+
 export interface ApiBaseCompletionOptions {
   model: string;
   temperature?: number;

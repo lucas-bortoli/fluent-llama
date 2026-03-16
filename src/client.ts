@@ -1,3 +1,4 @@
+import { EmbeddingModel } from "./embeddingModel.js";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { err, ok, Result } from "neverthrow";
 import * as v from "valibot";
@@ -743,6 +744,11 @@ export class Client {
    * @returns A Result containing success status or error.
    */
   public async load(id: string): Promise<Result<void, ModelLoadError>> {
+    const currentStatus = this.modelStatuses.get(id);
+    if (currentStatus?.status === "loaded") {
+      return ok();
+    }
+
     const result = await requestJson<ApiModelLoadUnloadResponse>({
       fetchFn: this.clientOptions.fetchFn,
       baseUrl: this.BASE_URL,
@@ -753,6 +759,19 @@ export class Client {
     });
 
     if (result.isErr()) {
+      const innerError = result.error;
+      if (
+        innerError.kind === "RequestError" &&
+        innerError.httpStatusCode === 400 &&
+        innerError.responseBody?.includes("model is already loaded")
+      ) {
+        this.modelStatuses.set(id, {
+          id,
+          status: "loaded",
+          inCache: true,
+        });
+        return ok();
+      }
       return err({
         kind: "ModelLoadError",
         details: "Model load request returned non-success response",
@@ -912,6 +931,34 @@ export class Client {
     }
 
     return TextModel.from(this, id);
+  }
+
+  /**
+   * Creates a new `EmbeddingModel` instance associated with this client.
+   * @param id The model identifier to fetch metadata for.
+   * @returns A promise resolving to a `Result` containing the `EmbeddingModel`.
+   */
+  public async createEmbeddingModel(id: string) {
+    // Check local status cache first
+    const modelStatus = this.modelStatuses.get(id);
+    if (!modelStatus) {
+      return err({
+        kind: "InvalidModel",
+        modelId: id,
+        details: `Model "${id}" is not tracked by the client. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
+      });
+    }
+
+    // Only allow creating EmbeddingModel if model is loaded
+    if (modelStatus.status !== "loaded") {
+      return err({
+        kind: "InvalidModel",
+        modelId: id,
+        details: `Model "${id}" is not currently loaded. Current status: ${modelStatus.status}`,
+      });
+    }
+
+    return EmbeddingModel.from(this, id);
   }
 
   /**
