@@ -19,6 +19,7 @@
 - **Advanced Sampling** ⚙️: Fine-grained control over temperature, top-k, top-p, mirostat, DRY, XTC, and more.
 - **Streaming** 🔄: Full SSE (Server-Sent Events) support for real-time token streaming.
 - **Router Mode** 🛰️: Dynamic model loading/unloading with automatic model discovery.
+- **Embeddings** 📊: Generate text embeddings for semantic search, clustering, and similarity tasks.
 
 ## Prerequisites
 
@@ -236,6 +237,72 @@ main();
 ```
 
 ### 5. Text Infilling
+
+The `predict()` method supports text infilling by using the native `/infill` endpoint. Provide a `prefix`, `suffix`, and the main `prompt` to generate completions for partial text blocks.
+
+### 6. Embeddings
+
+Generate text embeddings for semantic search, clustering, and similarity tasks.
+
+```typescript
+import { Client, Sampling } from "@lucas-bortoli/fluent-llama";
+
+async function main() {
+  const clientResult = await Client.from("http://localhost:8080");
+
+  if (clientResult.isErr()) {
+    console.error("Failed to create client:", clientResult.error);
+    process.exit(1);
+  }
+
+  const client = clientResult.value;
+
+  // Load an embedding model
+  const loadResult = await client.load("all-MiniLM-L6-v2");
+  if (loadResult.isErr()) {
+    console.error("Failed to load embedding model:", loadResult.error);
+    process.exit(1);
+  }
+
+  // Create embedding model instance
+  const embeddingModelResult = await client.createEmbeddingModel("all-MiniLM-L6-v2");
+
+  if (embeddingModelResult.isErr()) {
+    console.error("Error creating embedding model:", embeddingModelResult.error);
+    process.exit(1);
+  }
+
+  const embeddingModel = embeddingModelResult.value;
+
+  // Generate embedding for single text (returns number[])
+  const singleEmbedding = await embeddingModel.embed("Hello, world!");
+
+  if (singleEmbedding.isOk()) {
+    console.log("Single embedding dimension:", singleEmbedding.value.length);
+    console.log("First 5 values:", singleEmbedding.value.slice(0, 5));
+  } else {
+    console.error("Embedding error:", singleEmbedding.error);
+  }
+
+  // Generate embeddings for multiple texts (returns number[][])
+  const multipleEmbeddings = await embeddingModel.embed([
+    "Hello, world!",
+    "How are you?",
+    "Good morning!",
+  ]);
+
+  if (multipleEmbeddings.isOk()) {
+    console.log("Generated", multipleEmbeddings.value.length, "embeddings");
+    console.log("Each embedding has", multipleEmbeddings.value[0].length, "dimensions");
+  } else {
+    console.error("Multiple embeddings error:", multipleEmbeddings.error);
+  }
+}
+
+main();
+```
+
+### 7. Text Infilling
 
 The `predict()` method supports text infilling by using the native `/infill` endpoint. Provide a `prefix`, `suffix`, and the main `prompt` to generate completions for partial text blocks.
 
