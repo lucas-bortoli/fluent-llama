@@ -311,6 +311,11 @@ const combinePathNames = (baseUrl: URL, pathName: string): URL => {
 };
 
 /**
+ * Optional custom fetch function.
+ */
+export type FetchFn = (input: string | URL, init?: RequestInit) => Promise<Response>;
+
+/**
  * Performs a JSON-based API request (GET or POST).
  *
  * Handles response parsing and error mapping to `ApiRequestError`.
@@ -319,7 +324,7 @@ const combinePathNames = (baseUrl: URL, pathName: string): URL => {
  * @throws ApiRequestError when the API returns an error response.
  */
 export async function requestJson<J extends object>(options: {
-  fetchFn: typeof fetch;
+  fetchFn: FetchFn;
   baseUrl: URL;
   method: "GET" | "POST";
   pathName: string;
@@ -358,7 +363,7 @@ export async function requestJson<J extends object>(options: {
  * @throws ApiRequestError when the API returns an error response.
  */
 export async function requestStream<C extends object>(options: {
-  fetchFn: typeof fetch;
+  fetchFn: FetchFn;
   baseUrl: URL;
   method: "GET" | "POST";
   pathName: string;

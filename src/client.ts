@@ -1,7 +1,7 @@
-import { EmbeddingModel } from "./embeddingModel.js";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import * as v from "valibot";
 import {
+  ApiRequestError,
   requestJson,
   requestStream,
   type ApiChatCompletionOptions,
@@ -10,9 +10,10 @@ import {
   type ApiModelLoadUnloadResponse,
   type ApiModelsResponse,
   type ApiPropsResponse,
-  ApiRequestError,
   type ApiTimingMetrics,
+  type FetchFn,
 } from "./api.js";
+import { EmbeddingModel } from "./embeddingModel.js";
 import { objectToCamelCase, objectToSnakeCase } from "./helpers.js";
 import {
   prepareHistory,
@@ -542,7 +543,7 @@ export interface ClientOptions {
    * });
    * ```
    */
-  fetchFn: typeof fetch;
+  fetchFn: FetchFn;
 }
 
 /**
@@ -625,7 +626,7 @@ export class Client {
    */
   private static async fetchModelStatuses(
     baseUrl: URL,
-    fetchFn: (typeof globalThis)["fetch"],
+    fetchFn: FetchFn,
   ): Promise<Map<string, ManagedModel>> {
     const response = await requestJson<ApiModelsResponse>({
       fetchFn,
