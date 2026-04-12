@@ -1,4 +1,3 @@
-import { err, ok, type Result } from "neverthrow";
 import { apiStreamChunker } from "./streamChunker.js";
 
 /**
@@ -271,16 +270,27 @@ export interface ApiChatCompletionStreamChunk {
 }
 
 /**
- * Represents an HTTP-level API request failure.
+ * Thrown when the API returns an error response.
+ * Typically indicates network issues, invalid requests, or server errors.
  */
-export interface ApiRequestError {
-  kind: "RequestError";
-  /** General description of the failure. */
-  details: string;
-  /** The HTTP status code returned by the server. */
-  httpStatusCode: number;
-  /** Optional raw response body if available. */
-  responseBody?: string;
+export class ApiRequestError extends Error {
+  public readonly httpStatusCode: number;
+  public readonly responseBody: string;
+
+  constructor(
+    message: string = "API request failed",
+    httpStatusCode: number = 0,
+    responseBody?: string,
+    inner?: unknown,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.httpStatusCode = httpStatusCode;
+    this.responseBody = responseBody ?? "";
+    if (inner) {
+      this.cause = inner;
+    }
+  }
 }
 
 /**
@@ -305,7 +315,8 @@ const combinePathNames = (baseUrl: URL, pathName: string): URL => {
  *
  * Handles response parsing and error mapping to `ApiRequestError`.
  * @param options Configuration for the request including URL, method, body, and abort signal.
- * @returns A `Result` containing the parsed JSON or an `ApiRequestError`.
+ * @returns The parsed JSON.
+ * @throws ApiRequestError when the API returns an error response.
  */
 export async function requestJson<J extends object>(options: {
   fetchFn: typeof fetch;
@@ -315,7 +326,7 @@ export async function requestJson<J extends object>(options: {
   body?: object;
   signal?: AbortSignal | undefined | null;
   transformBody?: (input: object) => object;
-}): Promise<Result<J, ApiRequestError>> {
+}): Promise<J> {
   const requestUrl = combinePathNames(options.baseUrl, options.pathName);
 
   const response = await options.fetchFn(requestUrl, {
@@ -326,12 +337,7 @@ export async function requestJson<J extends object>(options: {
   });
 
   if (!response.ok) {
-    return err({
-      kind: "RequestError",
-      details: "The API call failed",
-      httpStatusCode: response.status,
-      responseBody: await response.text(),
-    });
+    throw new ApiRequestError("The API call failed", response.status, await response.text());
   }
 
   let json = await response.json();
@@ -340,7 +346,7 @@ export async function requestJson<J extends object>(options: {
     json = options.transformBody(json as object);
   }
 
-  return ok(json as J);
+  return json as J;
 }
 
 /**
@@ -348,7 +354,8 @@ export async function requestJson<J extends object>(options: {
  *
  * Wraps the stream in `apiStreamChunker` for JSON parsing.
  * @param options Configuration for the stream request.
- * @returns A `Result` containing the async generator stream or an `ApiRequestError`.
+ * @returns An async generator producing stream chunks.
+ * @throws ApiRequestError when the API returns an error response.
  */
 export async function requestStream<C extends object>(options: {
   fetchFn: typeof fetch;
@@ -357,7 +364,7 @@ export async function requestStream<C extends object>(options: {
   pathName: string;
   body: object;
   signal: AbortSignal | undefined | null;
-}): Promise<Result<AsyncGenerator<C, void, unknown>, ApiRequestError>> {
+}): Promise<AsyncGenerator<C, void, unknown>> {
   const requestUrl = combinePathNames(options.baseUrl, options.pathName);
 
   const response = await options.fetchFn(requestUrl, {
@@ -368,15 +375,10 @@ export async function requestStream<C extends object>(options: {
   });
 
   if (!response.ok) {
-    return err({
-      kind: "RequestError",
-      details: "The API call failed",
-      httpStatusCode: response.status,
-      responseBody: await response.text(),
-    });
+    throw new ApiRequestError("The API call failed", response.status, await response.text());
   }
 
   const stream = apiStreamChunker<C>(response.body!);
 
-  return ok(stream);
+  return stream;
 }

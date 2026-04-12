@@ -1,6 +1,5 @@
 import { EmbeddingModel } from "./embeddingModel.js";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import { err, ok, Result } from "neverthrow";
 import * as v from "valibot";
 import {
   requestJson,
@@ -11,7 +10,7 @@ import {
   type ApiModelLoadUnloadResponse,
   type ApiModelsResponse,
   type ApiPropsResponse,
-  type ApiRequestError,
+  ApiRequestError,
   type ApiTimingMetrics,
 } from "./api.js";
 import { objectToCamelCase, objectToSnakeCase } from "./helpers.js";
@@ -25,41 +24,46 @@ import { type SamplingResult } from "./sampling.js";
 import { type ToolsetResult } from "./tool.js";
 
 /**
- * Represents an error caused by invalid parameters passed to the client.
+ * Thrown when invalid parameters are passed to the client.
  */
-export interface InvalidParameterError {
-  kind: "InvalidParameter";
-  /** Detailed message explaining the validation failure. */
-  details: string;
+export class InvalidParameterError extends Error {
+  constructor(details: string) {
+    super(details);
+    this.name = "InvalidParameterError";
+  }
 }
 
 /**
- * Represents an error caused by an empty message history.
+ * Thrown when message history is empty but required.
  */
-export interface EmptyMessageArrayError {
-  kind: "EmptyMessageHistory";
-  /** Explanation of why the history was deemed empty. */
-  details: string;
+export class EmptyMessageArrayError extends Error {
+  constructor(details: string) {
+    super(details);
+    this.name = "EmptyMessageArrayError";
+  }
 }
 
 /**
- * Represents an error caused when a request is aborted by the client.
+ * Thrown when a request is aborted by the client.
  */
-export interface AbortedRequestError {
-  kind: "RequestAborted";
-  /** Description of the cancellation reason. */
-  details: string;
+export class AbortedRequestError extends Error {
+  constructor(details: string) {
+    super(details);
+    this.name = "AbortedRequestError";
+  }
 }
 
 /**
- * Represents an unexpected error originating from the server.
+ * Thrown when the server exhibits unexpected behavior.
  */
-export interface UnexpectedServerBehaviorError {
-  kind: "ServerError";
-  /** Description of the unexpected behavior. */
-  details: string;
-  /** Optional underlying cause/error object. */
-  cause?: unknown;
+export class UnexpectedServerBehaviorError extends Error {
+  constructor(details: string, inner?: unknown) {
+    super(details);
+    this.name = "UnexpectedServerBehaviorError";
+    if (inner) {
+      this.cause = inner;
+    }
+  }
 }
 
 /**
@@ -183,32 +187,20 @@ export class TextModel {
    * Fetches model metadata from the API and constructs a `TextModel` instance.
    * @param client The Client instance to use for the request.
    * @param id The identifier of the model to load.
-   * @returns A `Result` containing the model instance or a `ApiRequestError`.
+   * @returns The `TextModel` instance.
+   * @throws ApiRequestError when the API request fails.
    */
-  public static async from(
-    client: Client,
-    id: string,
-  ): Promise<Result<TextModel, ApiRequestError>> {
+  public static async from(client: Client, id: string): Promise<TextModel> {
     const urlWithModel = new URL(client.BASE_URL);
     urlWithModel.searchParams.set("model", id);
 
-    const queryResult = await requestJson<ApiPropsResponse>({
+    const response = await requestJson<ApiPropsResponse>({
       fetchFn: client.clientOptions.fetchFn,
       baseUrl: urlWithModel,
       method: "GET",
       pathName: "/props",
       transformBody: (body) => objectToCamelCase(body, true),
     });
-
-    if (queryResult.isErr()) {
-      return err({
-        ...queryResult.error,
-        kind: "RequestError" as const,
-        details: "Failed to query model properties: " + queryResult.error,
-      } satisfies ApiRequestError);
-    }
-
-    const response = queryResult.value;
 
     const {
       buildInfo,
@@ -227,7 +219,7 @@ export class TextModel {
       defaultGenerationSettings: { nCtx },
     } = response;
 
-    return ok(new TextModel(client, id, { totalSlots, contextSize: nCtx }));
+    return new TextModel(client, id, { totalSlots, contextSize: nCtx });
   }
 
   /**
@@ -236,7 +228,8 @@ export class TextModel {
    * Suitable for tasks that do not require conversation history (e.g., completion, translation).
    * Also supports code infilling when the input is an object with prefix/suffix.
    * @param options Configuration for the prediction including prompt, sampling settings, and callbacks.
-   * @returns A `Result` containing the completion output and metrics, or a `CompletionError`.
+   * @returns The completion output and metrics.
+   * @throws ApiRequestError, EmptyMessageArrayError, AbortedRequestError, or UnexpectedServerBehaviorError.
    */
   public async predict(options: {
     input:
@@ -251,7 +244,7 @@ export class TextModel {
     maxTokens?: number;
     signal?: AbortSignal;
     onEvent?: (data: CompletionCallbackEvent) => void;
-  }): Promise<Result<PredictResult, ApiRequestError | CompletionError>> {
+  }): Promise<PredictResult> {
     try {
       const body = objectToSnakeCase({
         ...options.sampling,
@@ -268,23 +261,18 @@ export class TextModel {
         stream: true,
       });
 
-      const requestResult = await requestStream<ApiCompletionStreamChunk>({
+      const stream = await requestStream<ApiCompletionStreamChunk>({
         fetchFn: this.client.clientOptions.fetchFn,
         baseUrl: this.client.BASE_URL,
         method: "POST",
-        // select native endpoint: /completion for standard text, /infill for infilling
         pathName: typeof options.input === "string" ? "/completion" : "/infill",
         body,
         signal: options.signal,
       });
 
-      if (requestResult.isErr()) {
-        return err(requestResult.error);
-      }
-
       let content = "";
 
-      for await (const chunk of requestResult.value) {
+      for await (const chunk of stream) {
         options.onEvent?.({
           kind: "Token",
           fragment: chunk.content,
@@ -303,30 +291,25 @@ export class TextModel {
             finishReason = "Stop";
           }
 
-          return ok({
+          return {
             content,
             timings: chunk.timings!,
             finishReason: finishReason!,
-          });
+          };
         }
       }
 
-      return err({
-        kind: "ServerError",
-        details: "The inference server did not provide a completion termination signal",
-      });
+      throw new UnexpectedServerBehaviorError(
+        "The inference server did not provide a completion termination signal",
+      );
     } catch (error) {
       if (error instanceof DOMException && error.code === error.ABORT_ERR) {
-        return err({
-          kind: "RequestAborted",
-          details: "The completion request was cancelled before completion",
-        });
+        throw new AbortedRequestError("The completion request was cancelled before completion");
       } else {
-        return err({
-          kind: "ServerError",
-          details: "An unexpected error occurred during inference",
-          cause: error,
-        });
+        throw new UnexpectedServerBehaviorError(
+          "An unexpected error occurred during inference",
+          error,
+        );
       }
     }
   }
@@ -336,7 +319,8 @@ export class TextModel {
    *
    * Handles tool calls, reasoning content, and multi-turn context.
    * @param options Configuration including instructions, history, sampling, and tools.
-   * @returns A `Result` containing the response message and finish reason, or a `ChatCompletionError`.
+   * @returns The response message and finish reason.
+   * @throws InvalidParameterError, ApiRequestError, EmptyMessageArrayError, AbortedRequestError, or UnexpectedServerBehaviorError.
    */
   public async respond(options: {
     instructions: string;
@@ -346,19 +330,13 @@ export class TextModel {
     maxTokens?: number;
     signal?: AbortSignal;
     onEvent?: ((data: ChatCompletionCallbackEvent) => void) | undefined;
-  }): Promise<
-    Result<RespondResult, InvalidParameterError | ApiRequestError | ChatCompletionError>
-  > {
+  }): Promise<RespondResult> {
     if (options.sampling.grammar !== undefined && options.toolset !== undefined) {
-      return err({
-        kind: "InvalidParameter",
-        details: "Grammar-based sampling (JSON or GBNF) and tool calling are mutually exclusive",
-      });
+      throw new InvalidParameterError(
+        "Grammar-based sampling (JSON or GBNF) and tool calling are mutually exclusive",
+      );
     } else if (options.history.length === 0) {
-      return err({
-        kind: "InvalidParameter",
-        details: "Conversation history is required for response generation",
-      });
+      throw new InvalidParameterError("Conversation history is required for response generation");
     }
 
     try {
@@ -385,7 +363,7 @@ export class TextModel {
           .toArray(),
       }) satisfies ApiChatCompletionOptions;
 
-      const requestResult = await requestStream<ApiChatCompletionStreamChunk>({
+      const stream = await requestStream<ApiChatCompletionStreamChunk>({
         fetchFn: this.client.clientOptions.fetchFn,
         baseUrl: this.client.BASE_URL,
         method: "POST",
@@ -394,10 +372,6 @@ export class TextModel {
         signal: options.signal,
       });
 
-      if (requestResult.isErr()) {
-        return err(requestResult.error);
-      }
-
       const collected = {
         role: "",
         reasoningContent: "",
@@ -405,16 +379,14 @@ export class TextModel {
         toolCalls: [] as { id: string; name: string; arguments: string }[],
       };
 
-      for await (const chunk of requestResult.value) {
+      for await (const chunk of stream) {
         const data = chunk.choices[0]!;
 
         if (data.delta.role) {
-          // got message role
           collected.role += data.delta.role;
         }
 
         if (data.delta.content) {
-          // got message content fragment
           collected.content += data.delta.content;
           options.onEvent?.({
             kind: "ContentToken",
@@ -424,7 +396,6 @@ export class TextModel {
         }
 
         if (data.delta.reasoningContent) {
-          // got message reasoning fragment
           collected.reasoningContent += data.delta.reasoningContent;
           options.onEvent?.({
             kind: "ReasoningToken",
@@ -434,7 +405,6 @@ export class TextModel {
         }
 
         if (data.delta.toolCalls) {
-          // got toolcall fragment
           for (const toolCall of data.delta.toolCalls) {
             if (toolCall.function) {
               if (collected.toolCalls[toolCall.index] === undefined)
@@ -466,7 +436,6 @@ export class TextModel {
         }
 
         if (data.finishReason !== null) {
-          // finished generation
           let finishReason: RespondResult["finishReason"];
 
           if (data.finishReason === "content_filter") {
@@ -486,30 +455,25 @@ export class TextModel {
             requestedToolCalls: collected.toolCalls,
           };
 
-          return ok({
+          return {
             response: generatedMessage,
             timings: chunk.timings!,
             finishReason: finishReason,
-          });
+          };
         }
       }
 
-      return err({
-        kind: "ServerError",
-        details: "The inference server did not provide a completion termination signal",
-      });
+      throw new UnexpectedServerBehaviorError(
+        "The inference server did not provide a completion termination signal",
+      );
     } catch (error) {
       if (error instanceof DOMException && error.code === error.ABORT_ERR) {
-        return err({
-          kind: "RequestAborted",
-          details: "The completion request was cancelled before completion",
-        });
+        throw new AbortedRequestError("The completion request was cancelled before completion");
       } else {
-        return err({
-          kind: "ServerError",
-          details: "An unexpected error occurred during inference",
-          cause: error,
-        });
+        throw new UnexpectedServerBehaviorError(
+          "An unexpected error occurred during inference",
+          error,
+        );
       }
     }
   }
@@ -519,7 +483,8 @@ export class TextModel {
    *
    * Repeatedly calls `respond` and executes returned tool calls until no tools are requested.
    * @param options Configuration including instructions, history, tools, and callbacks.
-   * @returns A `Result` containing the final chat history or an error.
+   * @returns The final chat history.
+   * @throws ApiRequestError, InvalidParameterError, EmptyMessageArrayError, AbortedRequestError, or UnexpectedServerBehaviorError.
    */
   public async act(options: {
     instructions: string;
@@ -528,12 +493,11 @@ export class TextModel {
     toolset: ToolsetResult;
     signal?: AbortSignal;
     onEvent?: (data: ChatCompletionCallbackEvent) => void;
-  }) {
+  }): Promise<History> {
     const threadHistory: History = [];
 
-    // agent loop
     while (true) {
-      const responseResult = await this.respond({
+      const response = await this.respond({
         instructions: options.instructions,
         history: [...options.history, ...threadHistory],
         sampling: options.sampling,
@@ -543,28 +507,20 @@ export class TextModel {
         maxTokens: Infinity,
       });
 
-      if (responseResult.isErr()) {
-        return responseResult;
-      }
+      threadHistory.push(response.response);
 
-      const { finishReason, response } = responseResult.value;
-
-      // add assistant response to history
-      threadHistory.push(response);
-
-      if (finishReason !== "ToolCallRequest") {
+      if (response.finishReason !== "ToolCallRequest") {
         break;
       }
 
-      // execute tools in parallel
       const toolResults = await Promise.all(
-        response.requestedToolCalls.map(executeTool.bind(null, options.toolset)),
+        response.response.requestedToolCalls.map(executeTool.bind(null, options.toolset)),
       );
 
       threadHistory.push(...toolResults);
     }
 
-    return ok(threadHistory);
+    return threadHistory;
   }
 }
 
@@ -590,32 +546,42 @@ export interface ClientOptions {
 }
 
 /**
- * Represents an error caused when loading a model fails.
+ * Thrown when loading a model fails.
  */
-export interface ModelLoadError {
-  kind: "ModelLoadError";
-  details: string;
-  inner?: unknown;
+export class ModelLoadError extends Error {
+  public readonly inner?: unknown;
+
+  constructor(details: string, inner?: unknown) {
+    super(details);
+    this.name = "ModelLoadError";
+    this.inner = inner;
+  }
 }
 
 /**
- * Represents an error caused when unloading a model fails.
+ * Thrown when unloading a model fails.
  */
-export interface ModelUnloadError {
-  kind: "ModelUnloadError";
-  details: string;
-  inner?: unknown;
+export class ModelUnloadError extends Error {
+  public readonly inner?: unknown;
+
+  constructor(details: string, inner?: unknown) {
+    super(details);
+    this.name = "ModelUnloadError";
+    this.inner = inner;
+  }
 }
 
 /**
- * Represents an error caused when a model ID is invalid or not available.
+ * Thrown when a model ID is invalid or not available.
  */
-export interface InvalidModelError {
-  kind: "InvalidModel";
-  /** The invalid model ID that was provided. */
-  modelId: string;
-  /** Explanation of why the model is invalid. */
-  details: string;
+export class InvalidModelError extends Error {
+  public readonly modelId: string;
+
+  constructor(modelId: string, details: string) {
+    super(details);
+    this.name = "InvalidModelError";
+    this.modelId = modelId;
+  }
 }
 
 /**
@@ -654,13 +620,14 @@ export class Client {
    * Fetches the current model statuses from the /models endpoint.
    * @param baseUrl The base URL of the inference server.
    * @param clientOptions Configuration options for the client.
-   * @returns A Result containing the Map of model statuses or an ApiRequestError.
+   * @returns The Map of model statuses.
+   * @throws ApiRequestError when the API request fails.
    */
   private static async fetchModelStatuses(
     baseUrl: URL,
     fetchFn: (typeof globalThis)["fetch"],
-  ): Promise<Result<Map<string, ManagedModel>, ApiRequestError>> {
-    const result = await requestJson<ApiModelsResponse>({
+  ): Promise<Map<string, ManagedModel>> {
+    const response = await requestJson<ApiModelsResponse>({
       fetchFn,
       baseUrl,
       method: "GET",
@@ -668,19 +635,15 @@ export class Client {
       transformBody: (body) => objectToCamelCase(body, true),
     });
 
-    if (result.isErr()) {
-      return err(result.error);
-    }
-
     const statuses = new Map<string, ManagedModel>();
-    for (const entry of result.value.data) {
+    for (const entry of response.data) {
       statuses.set(entry.id, {
         id: entry.id,
         status: entry.status?.value ?? "unloaded",
         inCache: entry.inCache,
       });
     }
-    return ok(statuses);
+    return statuses;
   }
 
   /**
@@ -690,125 +653,101 @@ export class Client {
    * @param expectedStatus The status to wait for.
    * @param maxAttempts Maximum number of polling attempts.
    * @param delayMs Delay between polling attempts.
-   * @returns A Result containing the final status or an error.
+   * @returns The final model status.
+   * @throws UnexpectedServerBehaviorError when the model fails to reach expected status.
    */
   private async pollForModelStatus(
     modelId: string,
     expectedStatus: ModelStatus,
     maxAttempts: number = 60,
     delayMs: number = 1000,
-  ): Promise<Result<ModelStatus, UnexpectedServerBehaviorError>> {
+  ): Promise<ModelStatus> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const result = await Client.fetchModelStatuses(
+      const statuses = await Client.fetchModelStatuses(
         new URL(this.BASE_URL.toString()),
         this.clientOptions.fetchFn,
       );
 
-      if (result.isOk()) {
-        const modelStatus = result.value.get(modelId);
+      const modelStatus = statuses.get(modelId);
 
-        // update local cache immediately to reflect server reality
-        if (modelStatus) {
-          this.modelStatuses.set(modelId, modelStatus);
-        }
-
-        const status = modelStatus?.status;
-
-        // fail fast if server reports 'failed' status
-        if (status === "failed") {
-          return err({
-            kind: "ServerError",
-            details: `Model "${modelId}" server reported failed status`,
-          });
-        }
-
-        if (status === expectedStatus) {
-          return ok(status);
-        }
+      if (modelStatus) {
+        this.modelStatuses.set(modelId, modelStatus);
       }
 
-      // wait before next attempt
+      const status = modelStatus?.status;
+
+      if (status === "failed") {
+        throw new UnexpectedServerBehaviorError(`Model "${modelId}" server reported failed status`);
+      }
+
+      if (status === expectedStatus) {
+        return status;
+      }
+
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
 
-    return err({
-      kind: "ServerError",
-      details: `Model "${modelId}" did not reach expected status "${expectedStatus}" after ${maxAttempts} attempts`,
-    });
+    throw new UnexpectedServerBehaviorError(
+      `Model "${modelId}" did not reach expected status "${expectedStatus}" after ${maxAttempts} attempts`,
+    );
   }
 
   /**
    * Loads a model into the inference router.
    * Polls until the model reaches "loaded" status.
    * @param id The model identifier to load.
-   * @returns A Result containing success status or error.
+   * @throws ModelLoadError when the model fails to load.
    */
-  public async load(id: string): Promise<Result<void, ModelLoadError>> {
+  public async load(id: string): Promise<void> {
     const currentStatus = this.modelStatuses.get(id);
     if (currentStatus?.status === "loaded") {
-      return ok();
+      return;
     }
 
-    const result = await requestJson<ApiModelLoadUnloadResponse>({
-      fetchFn: this.clientOptions.fetchFn,
-      baseUrl: this.BASE_URL,
-      method: "POST",
-      pathName: "/models/load",
-      body: { model: id },
-      transformBody: (body) => objectToCamelCase(body, true),
-    });
-
-    if (result.isErr()) {
-      const innerError = result.error;
-      if (
-        innerError.kind === "RequestError" &&
-        innerError.httpStatusCode === 400 &&
-        innerError.responseBody?.includes("model is already loaded")
-      ) {
-        this.modelStatuses.set(id, {
-          id,
-          status: "loaded",
-          inCache: true,
-        });
-        return ok();
-      }
-      return err({
-        kind: "ModelLoadError",
-        details: "Model load request returned non-success response",
-        inner: result.error,
+    let result: ApiModelLoadUnloadResponse;
+    try {
+      result = await requestJson<ApiModelLoadUnloadResponse>({
+        fetchFn: this.clientOptions.fetchFn,
+        baseUrl: this.BASE_URL,
+        method: "POST",
+        pathName: "/models/load",
+        body: { model: id },
+        transformBody: (body) => objectToCamelCase(body, true),
       });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.httpStatusCode === 400) {
+        if (error.responseBody?.includes("model is already loaded")) {
+          this.modelStatuses.set(id, {
+            id,
+            status: "loaded",
+            inCache: true,
+          });
+          return;
+        }
+      }
+      throw new ModelLoadError("Model load request failed", error);
     }
 
-    // update local status to loading
     this.modelStatuses.set(id, {
       id,
       status: "loading",
       inCache: true,
     });
 
-    // poll until model is loaded or fails
-    const statusResult = await this.pollForModelStatus(id, "loaded", 60, 1000);
-
-    if (statusResult.isOk()) {
-      // update local status with final result
+    try {
+      await this.pollForModelStatus(id, "loaded", 60, 1000);
       this.modelStatuses.set(id, {
         id,
-        status: statusResult.value,
+        status: "loaded",
         inCache: true,
       });
-      return ok();
-    } else {
-      // model failed to load, update status
+    } catch (error) {
       this.modelStatuses.set(id, {
         id,
         status: "failed",
         inCache: true,
       });
-      return err({
-        kind: "ModelLoadError",
-        details: "The model failed to load.",
-        inner: statusResult.error,
-      });
+      throw new ModelLoadError("The model failed to load.", error);
     }
   }
 
@@ -816,131 +755,107 @@ export class Client {
    * Unloads a model from the inference router.
    * Polls until the model reaches "unloaded" or "unloading" status.
    * @param id The model identifier to unload.
-   * @returns A Result containing success status or error.
+   * @throws ModelUnloadError when the model fails to unload.
    */
-  public async unload(id: string): Promise<Result<void, ModelUnloadError>> {
-    const result = await requestJson<ApiModelLoadUnloadResponse>({
-      fetchFn: this.clientOptions.fetchFn,
-      baseUrl: this.BASE_URL,
-      method: "POST",
-      pathName: "/models/unload",
-      body: { model: id },
-      transformBody: (body) => objectToCamelCase(body, true),
-    });
-
-    if (result.isErr()) {
-      const innerError = result.error;
-      if (
-        innerError.kind === "RequestError" &&
-        innerError.httpStatusCode === 400 &&
-        innerError.responseBody?.includes("model is not loaded")
-      ) {
-        this.modelStatuses.set(id, {
-          id,
-          status: "unloaded",
-          inCache: false,
-        });
-        return ok();
-      }
-      return err({
-        kind: "ModelUnloadError",
-        details: "Model unload request returned non-success response",
-        inner: result.error,
+  public async unload(id: string): Promise<void> {
+    let result: ApiModelLoadUnloadResponse;
+    try {
+      result = await requestJson<ApiModelLoadUnloadResponse>({
+        fetchFn: this.clientOptions.fetchFn,
+        baseUrl: this.BASE_URL,
+        method: "POST",
+        pathName: "/models/unload",
+        body: { model: id },
+        transformBody: (body) => objectToCamelCase(body, true),
       });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.httpStatusCode === 400) {
+        if (error.responseBody?.includes("model is not loaded")) {
+          this.modelStatuses.set(id, {
+            id,
+            status: "unloaded",
+            inCache: false,
+          });
+          return;
+        }
+      }
+      throw new ModelUnloadError("Model unload request failed", error);
     }
 
-    // Update local status to unloading
     this.modelStatuses.set(id, {
       id,
       status: "unloading",
       inCache: false,
     });
 
-    // Poll until model is unloaded or fails
-    const statusResult = await this.pollForModelStatus(id, "unloaded", 30, 1000);
-
-    if (statusResult.isOk()) {
-      // Update local status with final result
+    try {
+      await this.pollForModelStatus(id, "unloaded", 30, 1000);
       this.modelStatuses.set(id, {
         id,
-        status: statusResult.value,
+        status: "unloaded",
         inCache: false,
       });
-      return ok();
-    } else {
-      // Model failed to unload, update status
+    } catch (error) {
       this.modelStatuses.set(id, {
         id,
         status: "failed",
         inCache: false,
       });
-      return err({
-        kind: "ModelUnloadError",
-        details: "The model failed to unload.",
-        inner: statusResult.error,
-      });
+      throw new ModelUnloadError("The model failed to unload.", error);
     }
   }
 
   /**
    * Checks if this model is currently loaded in the router.
-   * @returns A Result containing true if loaded, false if unloaded, or an error.
+   * @param id The model identifier.
+   * @returns true if loaded, false if unloaded.
+   * @throws ModelLoadError if the model is not found in the client cache.
    */
-  public async isModelLoaded(
-    id: string,
-  ): Promise<Result<boolean, ApiRequestError | ModelLoadError>> {
+  public async isModelLoaded(id: string): Promise<boolean> {
     const model = this.modelStatuses.get(id);
     if (!model) {
-      return err({
-        kind: "ModelLoadError",
-        details: `Model "${id}" not found in client cache. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
-      });
+      throw new ModelLoadError(
+        `Model "${id}" not found in client cache. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
+      );
     }
 
-    const isLoaded = model.status === "loaded";
-    return ok(isLoaded);
+    return model.status === "loaded";
   }
 
   /**
    * Gets the current status of a model.
    * @param id The model identifier.
-   * @returns A Result containing the model status or undefined if not tracked.
+   * @returns The model status.
+   * @throws InvalidModelError if the model is not tracked.
    */
-  public getModelStatus(id: string): Result<ManagedModel, InvalidModelError> {
+  public getModelStatus(id: string): ManagedModel {
     const model = this.modelStatuses.get(id);
     if (!model) {
-      return err({
-        kind: "InvalidModel",
-        modelId: id,
-        details: `Model "${id}" not found in client cache`,
-      });
+      throw new InvalidModelError(id, `Model "${id}" not found in client cache`);
     }
-    return ok(model);
+    return model;
   }
 
   /**
    * Creates a new `TextModel` instance associated with this client.
    * @param id The model identifier to fetch metadata for.
-   * @returns A promise resolving to a `Result` containing the `TextModel`.
+   * @returns The `TextModel` instance.
+   * @throws InvalidModelError if the model is not tracked or not loaded.
    */
-  public async createTextModel(id: string) {
-    // Check local status cache first
+  public async createTextModel(id: string): Promise<TextModel> {
     const modelStatus = this.modelStatuses.get(id);
     if (!modelStatus) {
-      return err({
-        kind: "InvalidModel",
-        modelId: id,
-        details: `Model "${id}" is not tracked by the client. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
-      });
+      throw new InvalidModelError(
+        id,
+        `Model "${id}" is not tracked by the client. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
+      );
     }
 
-    // Only allow creating TextModel if model is loaded
     if (modelStatus.status !== "loaded") {
-      return err({
-        kind: "InvalidModel",
-        modelId: id,
-        details: `Model "${id}" is not currently loaded. Current status: ${modelStatus.status}`,
-      });
+      throw new InvalidModelError(
+        id,
+        `Model "${id}" is not currently loaded. Current status: ${modelStatus.status}`,
+      );
     }
 
     return TextModel.from(this, id);
@@ -949,26 +864,23 @@ export class Client {
   /**
    * Creates a new `EmbeddingModel` instance associated with this client.
    * @param id The model identifier to fetch metadata for.
-   * @returns A promise resolving to a `Result` containing the `EmbeddingModel`.
+   * @returns The `EmbeddingModel` instance.
+   * @throws InvalidModelError if the model is not tracked or not loaded.
    */
-  public async createEmbeddingModel(id: string) {
-    // Check local status cache first
+  public async createEmbeddingModel(id: string): Promise<EmbeddingModel> {
     const modelStatus = this.modelStatuses.get(id);
     if (!modelStatus) {
-      return err({
-        kind: "InvalidModel",
-        modelId: id,
-        details: `Model "${id}" is not tracked by the client. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
-      });
+      throw new InvalidModelError(
+        id,
+        `Model "${id}" is not tracked by the client. Available models: ${[...this.modelStatuses.keys()].join(", ")}`,
+      );
     }
 
-    // Only allow creating EmbeddingModel if model is loaded
     if (modelStatus.status !== "loaded") {
-      return err({
-        kind: "InvalidModel",
-        modelId: id,
-        details: `Model "${id}" is not currently loaded. Current status: ${modelStatus.status}`,
-      });
+      throw new InvalidModelError(
+        id,
+        `Model "${id}" is not currently loaded. Current status: ${modelStatus.status}`,
+      );
     }
 
     return EmbeddingModel.from(this, id);
@@ -979,12 +891,13 @@ export class Client {
    * Queries the /models endpoint to initialize model tracking.
    * @param baseUrl The base URL of the inference server.
    * @param options Optional configuration options.
-   * @returns A promise resolving to a Result containing the Client or an error.
+   * @returns The `Client` instance.
+   * @throws ApiRequestError when the API request fails.
    */
   public static async from(
     baseUrl: string | URL,
     options?: Partial<ClientOptions>,
-  ): Promise<Result<Client, ApiRequestError>> {
+  ): Promise<Client> {
     const clientOptions: ClientOptions = {
       fetchFn: globalThis["fetch"],
       ...options,
@@ -992,28 +905,19 @@ export class Client {
 
     baseUrl = new URL(baseUrl);
 
-    const statusesResult = await Client.fetchModelStatuses(baseUrl, clientOptions.fetchFn);
-
-    if (statusesResult.isErr()) {
-      return err(statusesResult.error);
-    }
+    const statuses = await Client.fetchModelStatuses(baseUrl, clientOptions.fetchFn);
 
     const client = new Client(baseUrl, clientOptions);
-    client.modelStatuses = statusesResult.value;
+    client.modelStatuses = statuses;
 
-    return ok(client);
+    return client;
   }
 
   /**
    * Refreshes the model status cache from the server.
-   * @returns A Result containing success or error.
+   * @throws ApiRequestError when the API request fails.
    */
-  public async refreshModelStatuses(): Promise<Result<void, ApiRequestError>> {
-    const result = await Client.fetchModelStatuses(this.BASE_URL, this.clientOptions.fetchFn);
-    if (result.isOk()) {
-      this.modelStatuses = result.value;
-      return ok();
-    }
-    return err(result.error);
+  public async refreshModelStatuses(): Promise<void> {
+    this.modelStatuses = await Client.fetchModelStatuses(this.BASE_URL, this.clientOptions.fetchFn);
   }
 }

@@ -12,7 +12,7 @@
 
 - **Fluent Configuration** 🧠: Builder pattern for `Sampling` and `Toolset` configurations.
 - **Agent Loops** 🤖: The `act()` method handles the multi-turn reasoning and tool execution cycle automatically.
-- **Error Handling with supermacro's neverthrow** 🛡️: All operations return `Result<T, E>` types from the [`neverthrow`](https://github.com/supermacro/neverthrow) library. Handle errors explicitly with TypeScript support. Highly recommend checking it out.
+- **Error Handling** 🛡️: All operations throw native JavaScript `Error` instances. Handle errors explicitly with standard `try/catch` patterns.
 - **Vision Support** 📷: Native handling of image attachments via Base64.
 - **Reasoning** 🔍: Supports `reasoningContent` (Chain of Thought) streams.
 - **Text Infilling** 📃: Native support for fill-in-the-middle text completion tasks.
@@ -41,37 +41,22 @@ import { Client } from "@lucas-bortoli/fluent-llama";
 import { RandomSeed, Sampling } from "@lucas-bortoli/fluent-llama";
 
 async function main() {
-  // Connect to your local llama-server
-  const clientResult = await Client.from("http://localhost:8080");
+  try {
+    // Connect to your local llama-server
+    const client = await Client.from("http://localhost:8080");
+    console.log("Client initialized with models:", [...client.modelStatuses.keys()]);
 
-  if (clientResult.isErr()) {
-    console.error("Failed to create client:", clientResult.error);
-    process.exit(1);
-  }
+    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
 
-  const client = clientResult.value;
-  console.log("Client initialized with models:", [...client.availableModels.keys()]);
+    const result = await llm.respond({
+      instructions: "You are a helpful assistant.",
+      history: [{ role: "user", content: "Hello, who are you?", attachments: [] }],
+      sampling: new Sampling().setSeed(RandomSeed).build(),
+    });
 
-  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
-
-  if (llmResult.isErr()) {
-    console.error("Error creating text model:", llmResult.error);
-    process.exit(1);
-  }
-
-  const llm = llmResult.value;
-
-  const result = await llm.respond({
-    instructions: "You are a helpful assistant.",
-    history: [{ role: "user", content: "Hello, who are you?", attachments: [] }],
-    sampling: new Sampling().setSeed(RandomSeed).build(),
-  });
-
-  if (result.isOk()) {
-    console.log(result.value.response.content);
-  } else {
-    // Always handle errors explicitly with neverthrow patterns
-    console.error("Response error:", result.error);
+    console.log(result.response.content);
+  } catch (error) {
+    console.error("Error:", error);
   }
 }
 
@@ -96,43 +81,27 @@ const weatherTool = tool({
   },
 });
 
-const clientResult = await Client.from("http://localhost:8080");
+try {
+  const client = await Client.from("http://localhost:8080");
+  const llm = await client.createTextModel("Qwen3.5-35B-A3B");
 
-if (clientResult.isErr()) {
-  console.error("Failed to create client:", clientResult.error);
-  process.exit(1);
-}
+  // Run the agent loop
+  const history = await llm.act({
+    instructions: "You are a helpful assistant. Use tools to answer.",
+    history: [{ role: "user", content: "What's the weather in Tokyo?", attachments: [] }],
+    sampling: new Sampling()
+      .setSamplerTemperature(0.7)
+      .setSamplerTopK(80)
+      .setSamplerMinP(0.02)
+      .setSeed(RandomSeed)
+      .build(),
+    toolset: new Toolset([weatherTool]).build(),
+  });
 
-const client = clientResult.value;
-
-const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
-
-if (llmResult.isErr()) {
-  console.error("Error creating text model:", llmResult.error);
-  process.exit(1);
-}
-
-const llm = llmResult.value;
-
-// Run the agent loop
-const response = await llm.act({
-  instructions: "You are a helpful assistant. Use tools to answer.",
-  history: [{ role: "user", content: "What's the weather in Tokyo?", attachments: [] }],
-  sampling: new Sampling()
-    .setSamplerTemperature(0.7)
-    .setSamplerTopK(80)
-    .setSamplerMinP(0.02)
-    .setSeed(RandomSeed)
-    .build(),
-  toolset: new Toolset([weatherTool]).build(),
-});
-
-if (response.isOk()) {
   // The history contains the new generated messages with tool results
-  console.log(response.value);
-} else {
-  // Handle errors explicitly
-  console.error("Agent response error:", response.error);
+  console.log(history);
+} catch (error) {
+  console.error("Agent error:", error);
 }
 ```
 
@@ -146,40 +115,26 @@ import path from "node:path";
 import { Client, Sampling } from "@lucas-bortoli/fluent-llama";
 
 async function main() {
-  const clientResult = await Client.from("http://localhost:8080");
+  try {
+    const client = await Client.from("http://localhost:8080");
+    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
 
-  if (clientResult.isErr()) {
-    console.error("Failed to create client:", clientResult.error);
-    process.exit(1);
-  }
+    const imageData = await fs.readFile(path.join(__dirname, "image.jpg"));
+    const response = await llm.respond({
+      instructions: "Describe this image.",
+      history: [
+        {
+          role: "user",
+          content: "What is in this picture?",
+          attachments: [{ mimeType: "image/jpeg", content: imageData.buffer }],
+        },
+      ],
+      sampling: new Sampling().build(),
+    });
 
-  const client = clientResult.value;
-  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
-
-  if (llmResult.isErr()) {
-    console.error("Error creating text model:", llmResult.error);
-    process.exit(1);
-  }
-
-  const llm = llmResult.value;
-
-  const imageData = await fs.readFile(path.join(__dirname, "image.jpg"));
-  const response = await llm.respond({
-    instructions: "Describe this image.",
-    history: [
-      {
-        role: "user",
-        content: "What is in this picture?",
-        attachments: [{ mimeType: "image/jpeg", content: imageData.buffer }],
-      },
-    ],
-    sampling: new Sampling().build(),
-  });
-
-  if (response.isOk()) {
-    console.log(response.value.response.content);
-  } else {
-    console.error("Vision response error:", response.error);
+    console.log(response.response.content);
+  } catch (error) {
+    console.error("Vision error:", error);
   }
 }
 
@@ -194,42 +149,26 @@ With llama-server's router mode, you can dynamically load and unload models with
 import { Client } from "@lucas-bortoli/fluent-llama";
 
 async function main() {
-  const clientResult = await Client.from("http://localhost:8080");
+  try {
+    const client = await Client.from("http://localhost:8080");
 
-  if (clientResult.isErr()) {
-    console.error("Failed to create client:", clientResult.error);
-    process.exit(1);
-  }
+    // Check available models
+    console.log("Available models:", [...client.modelStatuses.keys()]);
 
-  const client = clientResult.value;
-
-  // Check available models
-  console.log("Available models:", [...client.availableModels.keys()]);
-
-  // Load a model
-  const loadResult = await client.load("Qwen3.5-35B-A3B");
-  if (loadResult.isErr()) {
-    console.error("Failed to load model:", loadResult.error);
-  } else {
+    // Load a model
+    await client.load("Qwen3.5-35B-A3B");
     console.log("Model loaded successfully");
-  }
 
-  // Check if model is loaded
-  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
-  if (llmResult.isOk()) {
-    const llm = llmResult.value;
-    const isLoaded = await llm.isLoaded();
-    console.log("Model loaded status:", isLoaded.value);
+    // Use the model
+    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+    const isLoaded = await client.isModelLoaded("Qwen3.5-35B-A3B");
+    console.log("Model loaded status:", isLoaded);
 
-    // ... use the model ...
-  }
-
-  // Unload the model when done
-  const unloadResult = await client.unload("Qwen3.5-35B-A3B");
-  if (unloadResult.isErr()) {
-    console.error("Failed to unload model:", unloadResult.error);
-  } else {
+    // Unload the model when done
+    await client.unload("Qwen3.5-35B-A3B");
     console.log("Model unloaded successfully");
+  } catch (error) {
+    console.error("Error:", error);
   }
 }
 
@@ -240,6 +179,32 @@ main();
 
 The `predict()` method supports text infilling by using the native `/infill` endpoint. Provide a `prefix`, `suffix`, and the main `prompt` to generate completions for partial text blocks.
 
+```typescript
+import { Client, Sampling, RandomSeed } from "@lucas-bortoli/fluent-llama";
+
+async function main() {
+  try {
+    const client = await Client.from("http://localhost:8080");
+    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+
+    const result = await llm.predict({
+      input: {
+        prefix: "def sum(a, b):\n",
+        suffix: "\n\nprint(sum(5, 8))",
+        prompt: "Write this function.",
+      },
+      sampling: new Sampling().setSamplerTemperature(0.6).setSeed(RandomSeed).build(),
+    });
+
+    console.log("Infilling completion:", result.content);
+  } catch (error) {
+    console.error("Infilling error:", error);
+  }
+}
+
+main();
+```
+
 ### 6. Embeddings
 
 Generate text embeddings for semantic search, clustering, and similarity tasks.
@@ -248,162 +213,76 @@ Generate text embeddings for semantic search, clustering, and similarity tasks.
 import { Client, Sampling } from "@lucas-bortoli/fluent-llama";
 
 async function main() {
-  const clientResult = await Client.from("http://localhost:8080");
+  try {
+    const client = await Client.from("http://localhost:8080");
 
-  if (clientResult.isErr()) {
-    console.error("Failed to create client:", clientResult.error);
-    process.exit(1);
-  }
+    // Load an embedding model
+    await client.load("all-MiniLM-L6-v2");
 
-  const client = clientResult.value;
+    // Create embedding model instance
+    const embeddingModel = await client.createEmbeddingModel("all-MiniLM-L6-v2");
 
-  // Load an embedding model
-  const loadResult = await client.load("all-MiniLM-L6-v2");
-  if (loadResult.isErr()) {
-    console.error("Failed to load embedding model:", loadResult.error);
-    process.exit(1);
-  }
+    // Generate embedding for single text (returns number[])
+    const singleEmbedding = await embeddingModel.embed("Hello, world!");
+    console.log("Single embedding dimension:", singleEmbedding.length);
+    console.log("First 5 values:", singleEmbedding.slice(0, 5));
 
-  // Create embedding model instance
-  const embeddingModelResult = await client.createEmbeddingModel("all-MiniLM-L6-v2");
+    // Generate embeddings for multiple texts (returns number[][])
+    const multipleEmbeddings = await embeddingModel.embed([
+      "Hello, world!",
+      "How are you?",
+      "Good morning!",
+    ]);
 
-  if (embeddingModelResult.isErr()) {
-    console.error("Error creating embedding model:", embeddingModelResult.error);
-    process.exit(1);
-  }
-
-  const embeddingModel = embeddingModelResult.value;
-
-  // Generate embedding for single text (returns number[])
-  const singleEmbedding = await embeddingModel.embed("Hello, world!");
-
-  if (singleEmbedding.isOk()) {
-    console.log("Single embedding dimension:", singleEmbedding.value.length);
-    console.log("First 5 values:", singleEmbedding.value.slice(0, 5));
-  } else {
-    console.error("Embedding error:", singleEmbedding.error);
-  }
-
-  // Generate embeddings for multiple texts (returns number[][])
-  const multipleEmbeddings = await embeddingModel.embed([
-    "Hello, world!",
-    "How are you?",
-    "Good morning!",
-  ]);
-
-  if (multipleEmbeddings.isOk()) {
-    console.log("Generated", multipleEmbeddings.value.length, "embeddings");
-    console.log("Each embedding has", multipleEmbeddings.value[0].length, "dimensions");
-  } else {
-    console.error("Multiple embeddings error:", multipleEmbeddings.error);
+    console.log("Generated", multipleEmbeddings.length, "embeddings");
+    console.log("Each embedding has", multipleEmbeddings[0].length, "dimensions");
+  } catch (error) {
+    console.error("Embedding error:", error);
   }
 }
 
 main();
 ```
 
-### 7. Text Infilling
+## Error Handling
 
-The `predict()` method supports text infilling by using the native `/infill` endpoint. Provide a `prefix`, `suffix`, and the main `prompt` to generate completions for partial text blocks.
+This library uses standard JavaScript `Error` classes for error handling. **Every fallible operation can throw errors**. Handle them explicitly with `try/catch` blocks.
 
-```typescript
-import { Client, Sampling, RandomSeed } from "@lucas-bortoli/fluent-llama";
+### Available Error Classes
 
-async function main() {
-  const clientResult = await Client.from("http://localhost:8080");
-
-  if (clientResult.isErr()) {
-    console.error("Failed to create client:", clientResult.error);
-    process.exit(1);
-  }
-
-  const client = clientResult.value;
-  const llmResult = await client.createTextModel("Qwen3.5-35B-A3B");
-
-  if (llmResult.isErr()) {
-    console.error("Error creating text model:", llmResult.error);
-    process.exit(1);
-  }
-
-  const llm = llmResult.value;
-
-  const result = await llm.predict({
-    input: {
-      prefix: "def sum(a, b):\n",
-      suffix: "\n\nprint(sum(5, 8))",
-      prompt: "Write this function.",
-    },
-    sampling: new Sampling().setSamplerTemperature(0.6).setSeed(RandomSeed).build(),
-  });
-
-  if (result.isOk()) {
-    console.log("Infilling completion:", result.value.content);
-  } else {
-    console.error("Infilling error:", result.error);
-  }
-}
-
-main();
-```
-
-## Error Handling with Neverthrow
-
-This library uses [`neverthrow`](https://github.com/supermacro/neverthrow) for all error handling. **Every fallible operation returns a `Result<T, E>`** instead of throwing errors. This means you must handle errors explicitly.
-
-### Understanding `Result<T, E>`
-
-- `Result.isOk()` → Check if the operation succeeded
-- `Result.isErr()` → Check if the operation failed
-- `Result.value` → Access the successful result (only when `isOk()`)
-- `Result.error` → Access the error (only when `isErr()`)
-
-Check neverthrow's documentation for more information.
+- `ApiRequestError` - API request failures (includes `httpStatusCode` and `responseBody`)
+- `InvalidParameterError` - Invalid parameters provided
+- `EmptyMessageArrayError` - Empty message history
+- `AbortedRequestError` - Request was cancelled
+- `UnexpectedServerBehaviorError` - Server returned unexpected response
+- `ModelLoadError` - Model load failures
+- `ModelUnloadError` - Model unload failures
+- `InvalidModelError` - Invalid model ID
 
 ### Example: Handling Different Error Types
 
 ```typescript
-const response = await llm.respond({
-  instructions: "You are a helpful assistant.",
-  history: [
-    /* ... */
-  ],
-  sampling: new Sampling().build(),
-});
-
-if (response.isErr()) {
-  const error = response.error;
-
-  switch (error.kind) {
-    case "EmptyMessageHistory":
-      console.error("No conversation history provided");
-      break;
-    case "RequestAborted":
-      console.error("Request was cancelled before completion");
-      break;
-    case "ServerError":
-      console.error("Server returned unexpected error:", error.cause);
-      break;
-    case "RequestError":
-      console.error("API request failed:", {
-        status: error.httpStatusCode,
-        details: error.details,
-      });
-      break;
-    case "InvalidParameter":
-      console.error("Invalid parameters provided:", error.details);
-      break;
-    case "InvalidModel":
-      console.error("Invalid model specified:", {
-        modelId: error.modelId,
-        details: error.details,
-      });
-      break;
-    case "ModelLoadError":
-      console.error("Model failed to load:", error.details);
-      break;
-    case "ModelUnloadError":
-      console.error("Model failed to unload:", error.details);
-      break;
+try {
+  const response = await llm.respond({
+    instructions: "You are a helpful assistant.",
+    history: [
+      /* ... */
+    ],
+    sampling: new Sampling().build(),
+  });
+  console.log(response.response.content);
+} catch (error) {
+  if (error instanceof InvalidParameterError) {
+    console.error("Invalid parameters:", error.message);
+  } else if (error instanceof ApiRequestError) {
+    console.error("API request failed:", {
+      status: error.httpStatusCode,
+      responseBody: error.responseBody,
+    });
+  } else if (error instanceof ModelLoadError) {
+    console.error("Model load failed:", error.message, error.inner);
+  } else {
+    console.error("Unexpected error:", error);
   }
 }
 ```
