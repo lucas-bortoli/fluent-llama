@@ -13,42 +13,42 @@ export type RandomSeed = typeof RandomSeed;
 /**
  * Configuration interface for the temperature parameter.
  */
-interface TemperatureConfig {
+export interface TemperatureConfig {
   value: number;
 }
 
 /**
  * Configuration interface for Top-K sampling.
  */
-interface TopKConfig {
+export interface TopKConfig {
   value: number;
 }
 
 /**
  * Configuration interface for Top-P (Nucleus) sampling.
  */
-interface TopPConfig {
+export interface TopPConfig {
   value: number;
 }
 
 /**
  * Configuration interface for Min-P sampling.
  */
-interface MinPConfig {
+export interface MinPConfig {
   value: number;
 }
 
 /**
  * Configuration interface for Top-N-Sigma sampling.
  */
-interface TopNSigmaConfig {
+export interface TopNSigmaConfig {
   value: number;
 }
 
 /**
  * Configuration interface for XTC (Exclude Top Choices) sampling.
  */
-interface XtcConfig {
+export interface XtcConfig {
   probability: number;
   threshold: number;
 }
@@ -56,7 +56,7 @@ interface XtcConfig {
 /**
  * Configuration interface for Repetition penalty.
  */
-interface RepetitionConfig {
+export interface RepetitionConfig {
   lastN: number;
   penalty: number;
 }
@@ -64,14 +64,14 @@ interface RepetitionConfig {
 /**
  * Configuration interface for Locally Typical sampling.
  */
-interface TypicalConfig {
+export interface TypicalConfig {
   value: number;
 }
 
 /**
  * Configuration interface for Mirostat sampling.
  */
-interface MirostatConfig {
+export interface MirostatConfig {
   version: 0 | 1 | 2;
   lr: number;
   ent: number;
@@ -80,7 +80,7 @@ interface MirostatConfig {
 /**
  * Configuration interface for DRY (Don't Repeat Yourself) sampling.
  */
-interface DryConfig {
+export interface DryConfig {
   multiplier: number;
   base: number;
   allowedLength: number;
@@ -91,7 +91,7 @@ interface DryConfig {
 /**
  * Configuration interface for Adaptive-P sampling.
  */
-interface AdaptiveConfig {
+export interface AdaptiveConfig {
   target: number;
   decay: number;
 }
@@ -99,7 +99,7 @@ interface AdaptiveConfig {
 /**
  * Configuration interface for Dynamic Temperature.
  */
-interface DynatempConfig {
+export interface DynatempConfig {
   range: number;
   exp: number;
 }
@@ -107,14 +107,14 @@ interface DynatempConfig {
 /**
  * Configuration interface for Presence Penalty.
  */
-interface PresencePenaltyConfig {
+export interface PresencePenaltyConfig {
   value: number;
 }
 
 /**
  * Configuration interface for Frequency Penalty.
  */
-interface FrequencyPenaltyConfig {
+export interface FrequencyPenaltyConfig {
   value: number;
 }
 
@@ -170,7 +170,7 @@ export class Sampling {
 
   private config: SamplingState = { ...Sampling.defaultConfig };
   private order: SamplerName[] = [...Sampling.defaultOrder];
-  private readonly bias: Map<number, number | BanToken> = new Map();
+  private bias: Map<number, number | BanToken> = new Map();
   private grammar: Grammar | null = null;
 
   /**
@@ -338,6 +338,19 @@ export class Sampling {
   public __(lambda: (sampling: typeof this) => void) {
     lambda(this);
     return this;
+  }
+
+  /**
+   * Creates a deep copy of this Sampling instance.
+   * Modifications to the clone will not affect the original instance.
+   */
+  public clone(): Sampling {
+    const cloned = new Sampling();
+    cloned.config = structuredClone(this.config);
+    cloned.order = this.order.slice();
+    cloned.bias = new Map(this.bias);
+    cloned.grammar = this.grammar ? structuredClone(this.grammar) : null;
+    return cloned;
   }
 
   /**
