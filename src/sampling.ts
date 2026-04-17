@@ -359,6 +359,41 @@ export class Sampling {
   public build(): SamplingResult {
     const state = this.config;
 
+    /**
+     * Determines if a sampler name corresponds to an enabled configuration.
+     */
+    const isSamplerEnabled = (name: SamplerName): boolean => {
+      switch (name) {
+        case "penalties":
+          return (
+            state.repetition !== undefined ||
+            state.presence_penalty !== undefined ||
+            state.frequency_penalty !== undefined
+          );
+        case "dry":
+          return state.dry !== undefined;
+        case "top_n_sigma":
+          return state.top_n_sigma !== undefined;
+        case "top_k":
+          return state.top_k !== undefined;
+        case "typ_p":
+          return state.typical !== undefined;
+        case "top_p":
+          return state.top_p !== undefined;
+        case "min_p":
+          return state.min_p !== undefined;
+        case "xtc":
+          return state.xtc !== undefined;
+        case "temperature":
+          return state.temperature !== undefined;
+        default:
+          return false;
+      }
+    };
+
+    // filter the order to only include enabled samplers
+    const enabledSamplers = this.order.filter(isSamplerEnabled);
+
     return {
       seed: state.seed === RandomSeed ? -1 : state.seed,
 
@@ -389,7 +424,7 @@ export class Sampling {
       mirostat_tau: state.mirostat?.ent ?? 5.0,
       mirostat_eta: state.mirostat?.lr ?? 0.1,
       // sampler order
-      samplers: this.order,
+      samplers: enabledSamplers,
       logit_bias: Object.fromEntries(
         this.bias.entries().map(([token, bias]) => {
           return [token, bias === BanToken ? false : bias];
