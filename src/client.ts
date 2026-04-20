@@ -7,10 +7,13 @@ import {
   type ApiChatCompletionOptions,
   type ApiChatCompletionStreamChunk,
   type ApiCompletionStreamChunk,
+  type ApiDetokenizeResponse,
   type ApiModelLoadUnloadResponse,
   type ApiModelsResponse,
   type ApiPropsResponse,
   type ApiTimingMetrics,
+  type ApiTokenizePiece,
+  type ApiTokenizeResponse,
   type FetchFn,
 } from "./api.js";
 import { EmbeddingModel } from "./embeddingModel.js";
@@ -522,6 +525,80 @@ export class TextModel {
     }
 
     return threadHistory;
+  }
+
+  /**
+   * Tokenizes text into token IDs with piece metadata.
+   * @param options Configuration including text and optional flags.
+   * @returns Array of token pieces with IDs and text.
+   */
+  public async tokenize(options: {
+    text: string;
+    addSpecial?: boolean;
+    parseSpecial?: boolean;
+    withPieces: true;
+    signal?: AbortSignal;
+  }): Promise<ApiTokenizePiece[]>;
+
+  /**
+   * Tokenizes text into token IDs.
+   * @param options Configuration including text and optional flags.
+   * @returns Array of token IDs.
+   */
+  public async tokenize(options: {
+    text: string;
+    addSpecial?: boolean;
+    parseSpecial?: boolean;
+    withPieces?: false;
+    signal?: AbortSignal;
+  }): Promise<number[]>;
+
+  public async tokenize(options: {
+    text: string;
+    addSpecial?: boolean;
+    parseSpecial?: boolean;
+    withPieces?: boolean;
+    signal?: AbortSignal;
+  }): Promise<number[] | ApiTokenizePiece[]> {
+    const body = objectToSnakeCase({
+      content: options.text,
+      addSpecial: options.addSpecial,
+      parseSpecial: options.parseSpecial,
+      withPieces: options.withPieces,
+      model: this.id,
+    });
+
+    const response = await requestJson<ApiTokenizeResponse>({
+      fetchFn: this.client.clientOptions.fetchFn,
+      baseUrl: this.client.BASE_URL,
+      method: "POST",
+      pathName: "/tokenize",
+      body,
+      signal: options.signal,
+    });
+
+    return response.tokens as number[] | ApiTokenizePiece[];
+  }
+
+  /**
+   * Detokenizes token IDs back into text.
+   * @param tokens Array of token IDs to detokenize.
+   * @param signal Optional abort signal.
+   * @returns The detokenized text.
+   */
+  public async detokenize(tokens: number[], signal?: AbortSignal): Promise<string> {
+    const body = objectToSnakeCase({ tokens, model: this.id });
+
+    const response = await requestJson<ApiDetokenizeResponse>({
+      fetchFn: this.client.clientOptions.fetchFn,
+      baseUrl: this.client.BASE_URL,
+      method: "POST",
+      pathName: "/detokenize",
+      body,
+      signal,
+    });
+
+    return response.content;
   }
 }
 

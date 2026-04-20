@@ -69,7 +69,7 @@ try {
 
   logger.info("Client info:", client);
 
-  const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+  const llm = await client.createTextModel("Qwen3.6-35B-A3B");
 
   const response = await llm.act({
     instructions: "You are a helpful assistant. Use the tools given to help the user.",

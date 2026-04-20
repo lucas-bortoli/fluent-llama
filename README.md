@@ -20,6 +20,7 @@
 - **Streaming** 🔄: Full SSE (Server-Sent Events) support for real-time token streaming.
 - **Router Mode** 🛰️: Dynamic model loading/unloading with automatic model discovery.
 - **Embeddings** 📊: Generate text embeddings for semantic search, clustering, and similarity tasks.
+- **Tokenization** 🔤: Convert text to token IDs and back, with optional piece-level metadata.
 
 ## Prerequisites
 
@@ -46,7 +47,7 @@ async function main() {
     const client = await Client.from("http://localhost:8080");
     console.log("Client initialized with models:", [...client.modelStatuses.keys()]);
 
-    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+    const llm = await client.createTextModel("Qwen3.6-35B-A3B");
 
     const result = await llm.respond({
       instructions: "You are a helpful assistant.",
@@ -83,7 +84,7 @@ const weatherTool = tool({
 
 try {
   const client = await Client.from("http://localhost:8080");
-  const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+  const llm = await client.createTextModel("Qwen3.6-35B-A3B");
 
   // Run the agent loop
   const history = await llm.act({
@@ -117,7 +118,7 @@ import { Client, Sampling } from "@lucas-bortoli/fluent-llama";
 async function main() {
   try {
     const client = await Client.from("http://localhost:8080");
-    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+    const llm = await client.createTextModel("Qwen3.6-35B-A3B");
 
     const imageData = await fs.readFile(path.join(__dirname, "image.jpg"));
     const response = await llm.respond({
@@ -156,16 +157,16 @@ async function main() {
     console.log("Available models:", [...client.modelStatuses.keys()]);
 
     // Load a model
-    await client.load("Qwen3.5-35B-A3B");
+    await client.load("Qwen3.6-35B-A3B");
     console.log("Model loaded successfully");
 
     // Use the model
-    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
-    const isLoaded = await client.isModelLoaded("Qwen3.5-35B-A3B");
+    const llm = await client.createTextModel("Qwen3.6-35B-A3B");
+    const isLoaded = await client.isModelLoaded("Qwen3.6-35B-A3B");
     console.log("Model loaded status:", isLoaded);
 
     // Unload the model when done
-    await client.unload("Qwen3.5-35B-A3B");
+    await client.unload("Qwen3.6-35B-A3B");
     console.log("Model unloaded successfully");
   } catch (error) {
     console.error("Error:", error);
@@ -185,7 +186,7 @@ import { Client, Sampling, RandomSeed } from "@lucas-bortoli/fluent-llama";
 async function main() {
   try {
     const client = await Client.from("http://localhost:8080");
-    const llm = await client.createTextModel("Qwen3.5-35B-A3B");
+    const llm = await client.createTextModel("Qwen3.6-35B-A3B");
 
     const result = await llm.predict({
       input: {
@@ -238,6 +239,47 @@ async function main() {
     console.log("Each embedding has", multipleEmbeddings[0].length, "dimensions");
   } catch (error) {
     console.error("Embedding error:", error);
+  }
+}
+
+main();
+```
+
+### 7. Tokenization
+
+Convert text to token IDs and back using the `tokenize()` and `detokenize()` methods on `TextModel`.
+
+```typescript
+import { Client } from "@lucas-bortoli/fluent-llama";
+
+async function main() {
+  try {
+    const client = await Client.from("http://localhost:8080");
+    await client.load("Qwen3.6-35B-A3B");
+
+    const llm = await client.createTextModel("Qwen3.6-35B-A3B");
+
+    // Tokenize text into token IDs (returns number[])
+    const tokens = await llm.tokenize({ text: "Hello, world!" });
+    console.log("Token IDs:", tokens);
+
+    // Detokenize token IDs back into text (returns string)
+    const text = await llm.detokenize(tokens);
+    console.log("Detokenized:", text);
+
+    // Tokenize with piece metadata (returns ApiTokenizePiece[])
+    const pieces = await llm.tokenize({ text: "Hello, world!", withPieces: true });
+    for (const piece of pieces) {
+      console.log(`Token ${piece.id}: "${String(piece.piece)}"`);
+    }
+
+    // Optional: include special tokens (BOS, EOS)
+    const withSpecial = await llm.tokenize({
+      text: "Hello, world!",
+      addSpecial: true,
+    });
+  } catch (error) {
+    console.error("Tokenization error:", error);
   }
 }
 

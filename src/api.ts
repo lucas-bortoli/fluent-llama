@@ -269,6 +269,30 @@ export interface ApiChatCompletionStreamChunk {
   timings?: ApiTimingMetrics;
 }
 
+export interface ApiTokenizePiece {
+  id: number;
+  piece: string | number[];
+}
+
+export interface ApiTokenizeRequest {
+  content: string;
+  addSpecial?: boolean;
+  parseSpecial?: boolean;
+  withPieces?: boolean;
+}
+
+export interface ApiTokenizeResponse {
+  tokens: number[] | ApiTokenizePiece[];
+}
+
+export interface ApiDetokenizeRequest {
+  tokens: number[];
+}
+
+export interface ApiDetokenizeResponse {
+  content: string;
+}
+
 /**
  * Thrown when the API returns an error response.
  * Typically indicates network issues, invalid requests, or server errors.
