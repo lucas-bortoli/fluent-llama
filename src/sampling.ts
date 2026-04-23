@@ -1,13 +1,7 @@
 /**
- * Symbol used to disable a specific sampler instance.
+ * Value used to specify a random seed instead of a fixed one.
  */
-export const Disabled = Symbol("SamplerDisabled");
-export type Disabled = typeof Disabled;
-
-/**
- * Symbol used to specify a random seed instead of a fixed one.
- */
-export const RandomSeed = Symbol("RandomSeed");
+export const RandomSeed = "RandomSeed" as const;
 export type RandomSeed = typeof RandomSeed;
 
 /**
@@ -132,7 +126,7 @@ const VALID_SAMPLER_NAMES = [
 
 export type SamplerName = (typeof VALID_SAMPLER_NAMES)[number];
 
-export const BanToken = Symbol.for("Sampling/BanToken");
+export const BanToken = "BanToken" as const;
 export type BanToken = typeof BanToken;
 
 export type Grammar = { type: "Json"; schema: object } | { type: "Gbnf"; grammar: string };
@@ -176,96 +170,96 @@ export class Sampling {
   /**
    * Sets the temperature for generation.
    */
-  public setSamplerTemperature(value: number | Disabled): this {
-    this.config.temperature = value === Disabled ? undefined : { value };
+  public setSamplerTemperature(value: number | false): this {
+    this.config.temperature = value === false ? undefined : { value };
     return this;
   }
 
   /**
    * Sets the Top-K sampling limit.
    */
-  public setSamplerTopK(value: number | Disabled): this {
-    this.config.top_k = value === Disabled ? undefined : { value };
+  public setSamplerTopK(value: number | false): this {
+    this.config.top_k = value === false ? undefined : { value };
     return this;
   }
 
   /**
    * Sets the Top-P (Nucleus) sampling threshold.
    */
-  public setSamplerTopP(value: number | Disabled): this {
-    this.config.top_p = value === Disabled ? undefined : { value };
+  public setSamplerTopP(value: number | false): this {
+    this.config.top_p = value === false ? undefined : { value };
     return this;
   }
 
   /**
    * Sets the Min-P sampling threshold.
    */
-  public setSamplerMinP(value: number | Disabled): this {
-    this.config.min_p = value === Disabled ? undefined : { value };
+  public setSamplerMinP(value: number | false): this {
+    this.config.min_p = value === false ? undefined : { value };
     return this;
   }
 
   /**
    * Sets the Top-N-Sigma sampling threshold.
    */
-  public setSamplerTopNSigma(value: number | Disabled): this {
-    this.config.top_n_sigma = value === Disabled ? undefined : { value };
+  public setSamplerTopNSigma(value: number | false): this {
+    this.config.top_n_sigma = value === false ? undefined : { value };
     return this;
   }
 
   /**
    * Sets XTC sampling parameters.
    */
-  public setSamplerXtc(config: XtcConfig | Disabled): this {
-    this.config.xtc = config === Disabled ? undefined : config;
+  public setSamplerXtc(config: XtcConfig | false): this {
+    this.config.xtc = config === false ? undefined : config;
     return this;
   }
 
   /**
    * Sets Repetition penalty parameters.
    */
-  public setSamplerRepetitionPenalty(config: RepetitionConfig | Disabled): this {
-    this.config.repetition = config === Disabled ? undefined : config;
+  public setSamplerRepetitionPenalty(config: RepetitionConfig | false): this {
+    this.config.repetition = config === false ? undefined : config;
     return this;
   }
 
   /**
    * Sets Locally Typical sampling threshold.
    */
-  public setSamplerTypical(value: number | Disabled): this {
-    this.config.typical = value === Disabled ? undefined : { value };
+  public setSamplerTypical(value: number | false): this {
+    this.config.typical = value === false ? undefined : { value };
     return this;
   }
 
   /**
    * Sets Mirostat sampling parameters.
    */
-  public setSamplerMirostat(config: MirostatConfig | Disabled): this {
-    this.config.mirostat = config === Disabled ? undefined : config;
+  public setSamplerMirostat(config: MirostatConfig | false): this {
+    this.config.mirostat = config === false ? undefined : config;
     return this;
   }
 
   /**
    * Sets DRY sampling parameters.
    */
-  public setSamplerDry(config: DryConfig | Disabled): this {
-    this.config.dry = config === Disabled ? undefined : config;
+  public setSamplerDry(config: DryConfig | false): this {
+    this.config.dry = config === false ? undefined : config;
     return this;
   }
 
   /**
    * Sets Adaptive-P sampling parameters.
    */
-  public setSamplerAdaptive(config: AdaptiveConfig | Disabled): this {
-    this.config.adaptive = config === Disabled ? undefined : config;
+  public setSamplerAdaptive(config: AdaptiveConfig | false): this {
+    this.config.adaptive = config === false ? undefined : config;
     return this;
   }
 
   /**
    * Sets Dynamic Temperature parameters.
    */
-  public setSamplerDynatemp(config: DynatempConfig | Disabled): this {
-    this.config.dynatemp = config === Disabled ? undefined : config;
+  public setSamplerDynatemp(config: DynatempConfig | false): this {
+    this.config.dynatemp = config === false ? undefined : config;
     return this;
   }
 
@@ -273,8 +267,8 @@ export class Sampling {
    * Sets Presence Penalty parameter.
    * Affects how much to penalize new tokens based on their existing frequency in the text.
    */
-  public setSamplerPresencePenalty(value: number | Disabled): this {
-    this.config.presence_penalty = value === Disabled ? 0 : value;
+  public setSamplerPresencePenalty(value: number | false): this {
+    this.config.presence_penalty = value === false ? 0 : value;
     return this;
   }
 
@@ -282,13 +276,13 @@ export class Sampling {
    * Sets Frequency Penalty parameter.
    * Affects how much to penalize new tokens based on their existing frequency in the text.
    */
-  public setSamplerFrequencyPenalty(value: number | Disabled): this {
-    this.config.frequency_penalty = value === Disabled ? 0 : value;
+  public setSamplerFrequencyPenalty(value: number | false): this {
+    this.config.frequency_penalty = value === false ? 0 : value;
     return this;
   }
 
   /**
-   * Sets the Random Seed (Random if Symbol) or a specific integer.
+   * Sets the Random Seed.
    */
   public setSeed(value: number | RandomSeed): this {
     this.config.seed = value;
